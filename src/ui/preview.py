@@ -1,0 +1,623 @@
+"""
+Preview page generator — tema clean light.
+Fundo branco, acentos #099078 / #014B43, warmth #F9ECE5.
+"""
+
+from datetime import datetime
+import pandas as pd
+from src.config.settings import COLS
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _build_cards(fdf: pd.DataFrame, tdf: pd.DataFrame) -> list[dict]:
+    f_ord = fdf[COLS["order"]].nunique()
+    f_rem = len(fdf)
+    f_pcs = int(fdf[COLS["quantity"]].sum())
+    f_min = float(fdf[COLS["minutes"]].sum())
+
+    t_ord = tdf[COLS["order"]].nunique()
+    t_rem = len(tdf)
+    t_pcs = int(tdf[COLS["quantity"]].sum())
+    t_min = float(tdf[COLS["minutes"]].sum())
+
+    def pct(a, b):
+        return f"{a / b * 100:.1f}%" if b else "0.0%"
+
+    return [
+        {"icon": "📋", "label": "Total de Ordens",
+         "value": f"{f_ord:,}", "detail": f"de {t_ord:,} ordens", "pct": pct(f_ord, t_ord)},
+        {"icon": "🔁", "label": "Total de Remontes",
+         "value": f"{f_rem:,}", "detail": f"de {t_rem:,} registros", "pct": pct(f_rem, t_rem)},
+        {"icon": "🧵", "label": "Total de Peças",
+         "value": f"{f_pcs:,}", "detail": f"de {t_pcs:,} peças", "pct": pct(f_pcs, t_pcs)},
+        {"icon": "⏱️", "label": "Total de Minutos",
+         "value": f"{f_min:,.0f}", "detail": f"de {t_min:,.0f} min", "pct": pct(f_min, t_min)},
+    ]
+
+
+def _get_thresholds(tdf: pd.DataFrame) -> dict:
+    return {
+        "qty":  tdf[COLS["quantity"]].quantile(0.75),
+        "vbrl": tdf[COLS["value_brl"]].quantile(0.75),
+        "mins": tdf[COLS["minutes"]].quantile(0.75),
+    }
+
+
+def _b(formatted: str, raw_val: float, threshold: float) -> str:
+    return f"<strong class='hi'>{formatted}</strong>" if raw_val > threshold else formatted
+
+
+def _build_rows(fdf: pd.DataFrame, thr: dict) -> str:
+    d = fdf.copy()
+    d[COLS["date"]]        = d[COLS["date"]].dt.strftime("%d/%m/%Y")
+    d[COLS["pct_remonte"]] = (d[COLS["pct_remonte"]] * 100).round(2)
+    d[COLS["value_brl"]]   = d[COLS["value_brl"]].round(2)
+    d[COLS["minutes"]]     = d[COLS["minutes"]].round(2)
+
+    def _make_row(row):
+        qty  = int(row[COLS["quantity"]])
+        vbrl = float(row[COLS["value_brl"]])
+        mins = float(row[COLS["minutes"]])
+        pct  = float(row[COLS["pct_remonte"]])
+        return (
+            "<tr>"
+            f"<td>{row[COLS['date']]}</td>"
+            f"<td>{int(row[COLS['order']]):,}</td>"
+            f"<td class='tdl'>{row[COLS['supplier']]}</td>"
+            f"<td>{row[COLS['location']]}</td>"
+            f"<td>{row[COLS['defect']]}</td>"
+            f"<td>{_b(f'{qty:,}', qty, thr['qty'])}</td>"
+            f"<td>{int(row[COLS['real_cut']]):,}</td>"
+            f"<td>{pct:.2f}%</td>"
+            f"<td>{_b(f'{mins:,.2f}', mins, thr['mins'])}</td>"
+            f"<td>{_b(f'R$ {vbrl:,.2f}', vbrl, thr['vbrl'])}</td>"
+            "</tr>"
+        )
+
+    return "".join(_make_row(row) for _, row in d.iterrows())
+
+
+# ── Shared CSS Template for All Reports ────────────────────────────────────────
+
+_SHARED_CSS = """
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:#FFFFFF;
+  color:#1A2E2A;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;
+  padding:2rem 2.8rem;font-size:14px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ── Header ── */
+.header{
+  display:flex;align-items:flex-start;justify-content:space-between;
+  gap:1.5rem;padding-bottom:1.2rem;
+  border-bottom:2px solid #099078;margin-bottom:2rem;
+}
+.htitle{font-size:20px;font-weight:700;color:#014B43;letter-spacing:-0.3px}
+.htitle span{color:#099078}
+.hsub{font-size:12px;color:#4A7570;margin-top:4px}
+.hbadge{
+  font-size:11px;background:#F9ECE5;color:#014B43;
+  border:1px solid #099078;border-radius:20px;
+  padding:3px 12px;white-space:nowrap;align-self:flex-start;font-weight:600;
+}
+.hright{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+.hts{font-size:11px;color:#4A7570}
+
+/* ── PDF Button ── */
+.pdf-btn{
+  display:inline-flex;align-items:center;gap:7px;
+  background:#014B43;color:#FFFFFF;
+  border:none;padding:9px 20px;border-radius:7px;cursor:pointer;
+  font-size:13px;font-weight:600;letter-spacing:0.2px;
+  box-shadow:0 2px 8px rgba(1,75,67,0.22);
+  transition:background 0.2s,box-shadow 0.2s,transform 0.15s;
+}
+.pdf-btn:hover{background:#099078;box-shadow:0 4px 14px rgba(9,144,120,0.30);transform:translateY(-1px)}
+.pdf-btn:active{transform:translateY(0)}
+
+/* ── Section label ── */
+.sec{
+  font-size:11px;font-weight:700;letter-spacing:1.3px;
+  text-transform:uppercase;color:#099078;
+  padding-left:10px;border-left:3px solid #099078;
+  margin:0 0 1rem;
+}
+
+/* ── Cards ── */
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:2rem}
+.cards-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:2rem}
+.cards-5{display:grid;grid-template-columns:repeat(5,1fr);gap:1rem;margin-bottom:2rem}
+.card{
+  background:#FFFFFF;
+  border:1px solid #E0EDEB;
+  border-top:3px solid #099078;
+  border-radius:10px;padding:1.1rem 1.2rem;
+  box-shadow:0 1px 4px rgba(9,144,120,0.08);
+}
+.card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cico{font-size:20px}
+.cpct{
+  text-align:right;font-size:17px;font-weight:700;color:#014B43;line-height:1.1;
+}
+.cpct-label{font-size:10px;font-weight:400;color:#4A7570;text-transform:uppercase;letter-spacing:.5px}
+.clabel{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#4A7570;margin-bottom:5px}
+.cv{font-size:26px;font-weight:700;color:#014B43;margin-bottom:3px}
+.cdetail{font-size:11px;color:#4A7570}
+
+/* ── Table wrapper ── */
+.tw{border-radius:10px;border:1px solid #D6E8E5;overflow:hidden;box-shadow:0 1px 4px rgba(9,144,120,0.07)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+
+/* ── Table head ── */
+thead{background:#014B43}
+th{
+  padding:11px 13px;text-align:center;
+  color:#FFFFFF;font-weight:600;
+  font-size:11px;text-transform:uppercase;letter-spacing:.7px;
+  border-bottom:2px solid #099078;
+  white-space:nowrap;
+}
+
+/* ── Table body ── */
+td{
+  padding:9px 13px;text-align:center;
+  color:#1A2E2A;
+  border-bottom:1px solid #EDF4F3;
+}
+td.tdl{text-align:left}
+tbody tr:nth-child(even){background:#F9ECE5}
+tbody tr:nth-child(odd){background:#FFFFFF}
+tbody tr:hover{background:#E0EDEB}
+tbody td.hi,tbody td strong.hi{color:#014B43;font-weight:700}
+
+/* ── Status badges ── */
+.badge-status {
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-block;
+}
+.status-pago { background: #099078; color: #FFFFFF; }
+.status-pendente { background: #EF9F27; color: #1A1530; }
+.status-contestado { background: #D85A30; color: #FFFFFF; }
+
+/* ── Footer ── */
+.footer{
+  margin-top:2rem;padding-top:1rem;
+  border-top:1px solid #D6E8E5;
+  font-size:11px;color:#4A7570;
+  display:flex;justify-content:space-between;align-items:center;
+}
+
+/* ── Print ── */
+@media print{
+  .pdf-btn{display:none!important}
+
+  html,body,div,span,
+  .card,.cards,.cards-3,.cards-5,.tw,.header,.hright,.sec,.footer,
+  table,thead,tbody,tr,th,td,.badge-status,.status-pago,.status-pendente,.status-contestado{
+    -webkit-print-color-adjust:exact!important;
+    print-color-adjust:exact!important;
+    color-adjust:exact!important;
+  }
+
+  body{
+    padding:1.2rem 1.8rem;
+    background:#FFFFFF!important;
+    color:#1A2E2A!important;
+  }
+
+  .card{
+    break-inside:avoid;
+    background:#FFFFFF!important;
+    border-top-color:#099078!important;
+    box-shadow:none!important;
+    border-color:#D6E8E5!important;
+  }
+  .cv{color:#014B43!important}
+  .cpct{color:#014B43!important}
+  .clabel,.cdetail,.hsub{color:#4A7570!important}
+  .htitle{color:#014B43!important}
+  .htitle span{color:#099078!important}
+
+  thead,thead tr{background:#014B43!important}
+  th{
+    background:#014B43!important;
+    color:#FFFFFF!important;
+    border-bottom:2px solid #099078!important;
+    -webkit-print-color-adjust:exact!important;
+    print-color-adjust:exact!important;
+  }
+
+  tbody tr:nth-child(odd){
+    background:#FFFFFF!important;
+    -webkit-print-color-adjust:exact!important;
+    print-color-adjust:exact!important;
+  }
+  tbody tr:nth-child(even){
+    background:#F9ECE5!important;
+    -webkit-print-color-adjust:exact!important;
+    print-color-adjust:exact!important;
+  }
+  tbody td{
+    color:#1A2E2A!important;
+    border-bottom:1px solid #EDF4F3!important;
+  }
+  tbody td strong.hi{color:#014B43!important}
+
+  .badge-status{
+    -webkit-print-color-adjust:exact!important;
+    print-color-adjust:exact!important;
+    color-adjust:exact!important;
+  }
+  .status-pago{ background-color: #099078 !important; color: #FFFFFF !important; }
+  .status-pendente{ background-color: #EF9F27 !important; color: #1A1530 !important; }
+  .status-contestado{ background-color: #D85A30 !important; color: #FFFFFF !important; }
+
+  th,td{padding:7px 10px}
+  .footer{
+    margin-top:1rem;
+    color:#4A7570!important;
+    border-top-color:#D6E8E5!important;
+  }
+}
+"""
+
+
+# ── HTML generator for general Defect Report ──────────────────────────────────
+
+def _generate_html(fdf: pd.DataFrame, tdf: pd.DataFrame) -> str:
+    cards      = _build_cards(fdf, tdf)
+    thr        = _get_thresholds(tdf)
+    rows       = _build_rows(fdf, thr)
+    n          = len(fdf)
+    ts         = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    cards_html = ""
+    for c in cards:
+        cards_html += f"""
+        <div class="card">
+          <div class="card-top">
+            <span class="cico">{c['icon']}</span>
+            <span class="cpct">{c['pct']}<br><span class="cpct-label">do total</span></span>
+          </div>
+          <div class="clabel">{c['label']}</div>
+          <div class="cv">{c['value']}</div>
+          <div class="cdetail">{c['detail']}</div>
+        </div>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relatório de Defeitos · Produção</title>
+<style>
+{_SHARED_CSS}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <div class="htitle">🔍 Relatório de Defeitos · <span>Controle de Qualidade</span></div>
+    <div class="hsub">Linha de Acabamento &nbsp;·&nbsp; <strong>{n:,}</strong> registros filtrados &nbsp;·&nbsp; Gerado em {ts}</div>
+  </div>
+  <div class="hright">
+    <span class="hbadge">📊 Visualização Filtrada</span>
+    <button class="pdf-btn" onclick="window.print()">🖨️ Baixar PDF</button>
+  </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="sec">Resumo Executivo</div>
+<div class="cards">{cards_html}</div>
+
+<!-- Table -->
+<div class="sec">Dados Detalhados &nbsp;({n:,} registros)</div>
+<div class="tw">
+<table>
+  <thead>
+    <tr>
+      <th>Data</th><th>Ordem</th>
+      <th style="text-align:left">Fornecedor</th>
+      <th>Local</th><th>Defeito</th><th>Qtd</th>
+      <th>Real Cortado</th><th>% Remonte</th>
+      <th>Minutos</th><th>Valor (R$)</th>
+    </tr>
+  </thead>
+  <tbody>{rows}</tbody>
+</table>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <span>Dashboard de Qualidade · Produção Acabamento</span>
+  <span>{n:,} registros &nbsp;·&nbsp; {ts}</span>
+</div>
+
+</body>
+</html>"""
+
+
+# ── HTML generator for Supplier Billing Report ─────────────────────────────────
+
+def _generate_cobranca_html(
+    supplier: str,
+    cnpj: str,
+    total: float,
+    df_sel: pd.DataFrame,
+    df_full: pd.DataFrame
+) -> str:
+    n_records = len(df_sel)
+    n_orders = df_sel[COLS["order"]].nunique() if COLS["order"] in df_sel.columns else 0
+    ts = datetime.now().strftime("%d/%m/%Y %H:%M")
+    
+    thr = _get_thresholds(df_full)
+    
+    rows = ""
+    for _, row in df_sel.iterrows():
+        qty = int(row[COLS["quantity"]])
+        vbrl = float(row[COLS["value_brl"]])
+        mins = float(row[COLS["minutes"]])
+        
+        dt_val = row[COLS["date"]]
+        if isinstance(dt_val, pd.Timestamp):
+            dt_str = dt_val.strftime("%d/%m/%Y")
+        else:
+            dt_str = str(dt_val)
+            
+        rows += (
+            "<tr>"
+            f"<td>{dt_str}</td>"
+            f"<td>{int(row[COLS['order']]):,}</td>"
+            f"<td>{_b(f'{qty:,}', qty, thr['qty'])}</td>"
+            f"<td class='tdl'>{row[COLS['defect']]}</td>"
+            f"<td>{int(row[COLS['real_cut']]):,}</td>"
+            f"<td>{_b(f'{mins:,.2f}', mins, thr['mins'])}</td>"
+            f"<td>{_b(f'R$ {vbrl:,.2f}', vbrl, thr['vbrl'])}</td>"
+            "</tr>"
+        )
+        
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aviso de Cobrança · {supplier}</title>
+<style>
+{_SHARED_CSS}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <div class="htitle">💰 Aviso de Cobrança · <span>{supplier}</span></div>
+    <div class="hsub">CNPJ: {cnpj} &nbsp;·&nbsp; Gerado em {ts}</div>
+  </div>
+  <div class="hright">
+    <span class="hbadge">Gestão de Desconto</span>
+    <button class="pdf-btn" onclick="window.print()">🖨️ Baixar PDF</button>
+  </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="sec">Resumo da Cobrança</div>
+<div class="cards-3">
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">💰</span>
+    </div>
+    <div class="clabel">Total a Cobrar</div>
+    <div class="cv">R$ {total:,.2f}</div>
+    <div class="cdetail">Desconto acumulado</div>
+  </div>
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">📋</span>
+    </div>
+    <div class="clabel">Registros de Defeito</div>
+    <div class="cv">{n_records:,}</div>
+    <div class="cdetail">defeitos identificados</div>
+  </div>
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">📦</span>
+    </div>
+    <div class="clabel">Ordens Mestre (OM)</div>
+    <div class="cv">{n_orders:,}</div>
+    <div class="cdetail">ordens afetadas</div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="sec">Detalhamento dos Defeitos</div>
+<div class="tw">
+<table>
+  <thead>
+    <tr>
+      <th>Data</th><th>OM</th><th>Qtd</th>
+      <th style="text-align:left">Remonte / Tipo de Defeito</th>
+      <th>Rel. Cortado</th><th>Min. Gerados</th><th>Valor (R$)</th>
+    </tr>
+  </thead>
+  <tbody>{rows}</tbody>
+</table>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <span>Aviso de Cobrança · Controle de Qualidade</span>
+  <span>{n_records:,} registros &nbsp;·&nbsp; {ts}</span>
+</div>
+
+</body>
+</html>"""
+
+
+# ── HTML generator for Billing History Report ─────────────────────────────────
+
+def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_desc: str) -> str:
+    ts = datetime.now().strftime("%d/%m/%Y %H:%M")
+    n = len(df_filtered)
+    
+    rows = ""
+    for _, row in df_filtered.iterrows():
+        val_cobranca = row.get("Data Cobrança", "")
+        supplier = row.get("Fornecedor", "")
+        cnpj = row.get("CNPJ", "")
+        status = row.get("Status", "Pendente")
+        om = row.get("OM", "")
+        val_prod = row.get("Data Produção", "")
+        qty = row.get("Qtd", 0)
+        remonte = row.get("Remonte", "")
+        real_cortado = row.get("Real Cortado", 0)
+        minutes = row.get("Min. Gerados", 0.0)
+        value = row.get("Valor (R$)", 0.0)
+        
+        if isinstance(val_cobranca, pd.Timestamp):
+            val_cobranca = val_cobranca.strftime("%d/%m/%Y")
+        if isinstance(val_prod, pd.Timestamp):
+            val_prod = val_prod.strftime("%d/%m/%Y")
+            
+        st_lower = str(status).strip()
+        if st_lower == "Pago":
+            status_badge = '<span class="badge-status status-pago">✅ Pago</span>'
+        elif st_lower == "Contestado":
+            status_badge = '<span class="badge-status status-contestado">⚠️ Contestado</span>'
+        else:
+            status_badge = '<span class="badge-status status-pendente">⏳ Pendente</span>'
+            
+        # Formatar números de forma amigável
+        try:
+            qty_val = f"{int(qty):,}"
+        except Exception:
+            qty_val = str(qty)
+        try:
+            om_val = f"{int(om)}"
+        except Exception:
+            om_val = str(om)
+        try:
+            rc_val = f"{int(real_cortado):,}"
+        except Exception:
+            rc_val = str(real_cortado)
+            
+        rows += (
+            "<tr>"
+            f"<td>{val_cobranca}</td>"
+            f"<td class='tdl'>{supplier}</td>"
+            f"<td>{cnpj}</td>"
+            f"<td>{status_badge}</td>"
+            f"<td>{om_val}</td>"
+            f"<td>{val_prod}</td>"
+            f"<td>{qty_val}</td>"
+            f"<td class='tdl'>{remonte}</td>"
+            f"<td>{rc_val}</td>"
+            f"<td>{float(minutes):,.2f}</td>"
+            f"<td>R$ {float(value):,.2f}</td>"
+            "</tr>"
+        )
+        
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Histórico de Cobranças · Qualidade</title>
+<style>
+{_SHARED_CSS}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <div class="htitle">🗃️ Histórico de Cobranças · <span>Controle de Qualidade</span></div>
+    <div class="hsub">{filters_desc} &nbsp;·&nbsp; Gerado em {ts}</div>
+  </div>
+  <div class="hright">
+    <span class="hbadge">bd_cobranca.xlsx</span>
+    <button class="pdf-btn" onclick="window.print()">🖨️ Baixar PDF</button>
+  </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="sec">Resumo do Histórico</div>
+<div class="cards-5">
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">🧵</span>
+    </div>
+    <div class="clabel">Peças com Defeito</div>
+    <div class="cv">{totals['total_pieces']:,}</div>
+    <div class="cdetail">total no período</div>
+  </div>
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">📋</span>
+    </div>
+    <div class="clabel">Total Defeitos</div>
+    <div class="cv">{totals['n_records']:,}</div>
+    <div class="cdetail">registros/linhas</div>
+  </div>
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">⏱️</span>
+    </div>
+    <div class="clabel">Total Minutos</div>
+    <div class="cv">{totals['total_minutes']:,.0f} min</div>
+    <div class="cdetail">tempo gerado</div>
+  </div>
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">💰</span>
+    </div>
+    <div class="clabel">Valor Total</div>
+    <div class="cv">R$ {totals['total_value']:,.2f}</div>
+    <div class="cdetail">custo de remonte</div>
+  </div>
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">📦</span>
+    </div>
+    <div class="clabel">Ordens Únicas (OM)</div>
+    <div class="cv">{totals['n_orders']:,}</div>
+    <div class="cdetail">ordens afetadas</div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="sec">Registros Detalhados &nbsp;({n:,} linhas)</div>
+<div class="tw">
+<table>
+  <thead>
+    <tr>
+      <th>Data Cobrança</th><th style="text-align:left">Fornecedor</th><th>CNPJ</th>
+      <th>Status</th><th>OM</th><th>Data Produção</th><th>Qtd</th>
+      <th style="text-align:left">Remonte / Defeito</th><th>Real Cortado</th>
+      <th>Min. Gerados</th><th>Valor (R$)</th>
+    </tr>
+  </thead>
+  <tbody>{rows}</tbody>
+</table>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <span>Histórico de Cobranças · Controle de Qualidade</span>
+  <span>{n:,} registros &nbsp;·&nbsp; {ts}</span>
+</div>
+
+</body>
+</html>"""
+
