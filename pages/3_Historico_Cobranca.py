@@ -538,7 +538,7 @@ def main() -> None:
 
     with btn_pdf:
         if n_records > 0:
-            html_hist = _generate_historico_html(edited_df, totals, filters_desc)
+            html_hist = _generate_historico_html(df_filtered, totals, filters_desc)
             html_hist_b64 = base64.b64encode(html_hist.encode("utf-8")).decode()
             components.html(
                 f"""<!DOCTYPE html>

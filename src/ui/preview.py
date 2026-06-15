@@ -16,12 +16,13 @@ def _build_cards(fdf: pd.DataFrame, tdf: pd.DataFrame) -> list[dict]:
     f_rem = len(fdf)
     f_pcs = int(fdf[COLS["quantity"]].sum())
     f_min = float(fdf[COLS["minutes"]].sum())
-
+    f_Valor = float(fdf[COLS["value_brl"]].sum())
+    
     t_ord = tdf[COLS["order"]].nunique()
     t_rem = len(tdf)
     t_pcs = int(tdf[COLS["quantity"]].sum())
     t_min = float(tdf[COLS["minutes"]].sum())
-
+    t_Valor = float(tdf[COLS["value_brl"]].sum())
     def pct(a, b):
         return f"{a / b * 100:.1f}%" if b else "0.0%"
 
@@ -34,6 +35,8 @@ def _build_cards(fdf: pd.DataFrame, tdf: pd.DataFrame) -> list[dict]:
          "value": f"{f_pcs:,}", "detail": f"de {t_pcs:,} peças", "pct": pct(f_pcs, t_pcs)},
         {"icon": "⏱️", "label": "Total de Minutos",
          "value": f"{f_min:,.0f}", "detail": f"de {t_min:,.0f} min", "pct": pct(f_min, t_min)},
+        {"icon": "💰", "label": "Total em Valor",
+         "value": f"R$ {f_Valor:,.2f}", "detail": f"de R$ {t_Valor:,.2f}", "pct": pct(f_Valor, t_Valor)},
     ]
 
 

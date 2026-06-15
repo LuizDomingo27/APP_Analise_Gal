@@ -14,7 +14,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from src.config.settings import COLS
+from src.config.settings import COLS, BD_PRINCIPAL, DATASET_DIR
 
 # ── Caminho do arquivo de histórico ──────────────────────────────────────────
 _BASE_DIR   = Path(__file__).resolve().parents[2]
@@ -176,13 +176,33 @@ def update_status(row_index: int, novo_status: str) -> bool:
 
 
 def remove_supplier_from_df(supplier: str, supplier_col: str) -> None:
-    """Remove todos os registros do fornecedor do DataFrame principal em session_state."""
+    """
+    Remove todos os registros do fornecedor do DataFrame principal:
+      1. Atualiza st.session_state["df"] (memória)
+      2. Persiste o resultado em bd_principal.xlsx (disco)
+      3. Limpa o cache de load_data_from_disk para evitar recarga dos dados antigos
+    """
     if "df" not in st.session_state:
         return
+
     df_atual    = st.session_state["df"]
     df_filtrado = df_atual[df_atual[supplier_col] != supplier].copy()
     df_filtrado.reset_index(drop=True, inplace=True)
+
+    # 1. Atualiza memória
     st.session_state["df"] = df_filtrado
+
+    # 2. Persiste no disco
+    try:
+        DATASET_DIR.mkdir(parents=True, exist_ok=True)
+        df_filtrado.to_excel(BD_PRINCIPAL, index=False, engine="openpyxl")
+    except Exception as exc:
+        st.warning(f"⚠️ Não foi possível salvar bd_principal.xlsx: {exc}")
+        return
+
+    # 3. Invalida cache do loader para que o próximo acesso leia do disco atualizado
+    from src.data.loader import load_data_from_disk
+    load_data_from_disk.clear()
 
 
 @st.cache_data
