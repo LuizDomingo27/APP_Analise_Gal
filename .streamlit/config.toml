@@ -6,5 +6,3 @@ secondaryBackgroundColor = "#FFFFFF"
 textColor = "#0D1B17"
 font = "sans serif"
 
-[server]
-headless = false
