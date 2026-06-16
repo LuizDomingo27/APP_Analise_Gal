@@ -229,10 +229,10 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
   </span>
   <div class="action-btns">
     <button class="abtn abtn-print" onclick="openPreview()">
-      <span class="abtn-icon">&#0F86A3;</span> Prévia / Imprimir PDF
+      <span class=""></span> Prévia / Imprimir PDF
     </button>
     <a class="abtn abtn-save" href="{save_href}" download="defeitos_fornecedor.xlsx">
-      <span class="abtn-icon">&#0F86A3;</span> Salvar por Fornecedor
+      <span class=""</span> Salvar por Fornecedor
     </a>
   </div>
 </div>
