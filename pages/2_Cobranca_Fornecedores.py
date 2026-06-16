@@ -28,31 +28,31 @@ from src.ui.cobranca import render_cobranca_page
 st.markdown(
     """
     <style>
-    [data-testid="stAppViewContainer"] > .main { background: #0D0D1A; }
-    [data-testid="stMain"]                      { background: #0D0D1A; }
+    [data-testid="stAppViewContainer"] > .main { background: #FAFCFB; }
+    [data-testid="stMain"]                      { background: #FAFCFB; }
     .main .block-container {
         padding-top: 1.5rem;
         padding-bottom: 3rem;
         max-width: 1400px;
     }
     [data-testid="stSidebar"] {
-        background: #0A0A18 !important;
-        border-right: 1px solid rgba(255,255,255,0.06);
+        background: #FFFFFF !important;
+        border-right: 1px solid rgba(0,0,0,0.06);
     }
     [data-testid="stSidebar"] label {
-        color: #9898BB !important;
+        color: #4A5752 !important;
         font-size: 13px !important;
     }
     .stButton > button {
-        background: rgba(83,74,183,0.15) !important;
-        color: #B8B0FF !important;
-        border: 1px solid rgba(83,74,183,0.35) !important;
+        background: rgba(0,229,160,0.15) !important;
+        color:#00805C !important;
+        border: 1px solid rgba(0,229,160,0.35) !important;
         border-radius: 8px !important;
         font-size: 12px !important;
     }
     .stButton > button:hover {
-        background: rgba(83,74,183,0.28) !important;
-        border-color: rgba(83,74,183,0.6) !important;
+        background: rgba(0,229,160,0.28) !important;
+        border-color: rgba(0,229,160,0.6) !important;
     }
     .stButton > button[kind="primary"] {
         background: rgba(194,57,43,0.85) !important;
@@ -65,11 +65,11 @@ st.markdown(
         background: rgba(194,57,43,1.0) !important;
     }
     [data-testid="stExpander"] {
-        background: rgba(255,255,255,0.02) !important;
-        border: 1px solid rgba(255,255,255,0.07) !important;
+        background: rgba(0,0,0,0.02) !important;
+        border: 1px solid rgba(0,0,0,0.07) !important;
         border-radius: 10px !important;
     }
-    hr { border-color: rgba(255,255,255,0.06) !important; }
+    hr { border-color: rgba(0,0,0,0.06) !important; }
     [data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
     </style>
     """,
@@ -113,19 +113,19 @@ def _render_sidebar_info(total_records: int) -> None:
     """Exibe informações básicas da base na sidebar."""
     st.sidebar.markdown(
         '<p style="font-size:11px;text-transform:uppercase;letter-spacing:1px;'
-        'color:#6868AA;margin-bottom:10px">📊 Status</p>',
+        'color:#4A5752;margin-bottom:10px">📊 Status</p>',
         unsafe_allow_html=True,
     )
     st.sidebar.markdown(
-        '<div style="font-size:10.5px;color:#1D9E75;padding:6px 8px;'
-        'border-radius:6px;background:rgba(29,158,117,0.08);'
-        'border:1px solid rgba(29,158,117,0.2);margin-bottom:8px">'
+        '<div style="font-size:10.5px;color:#00805C;padding:6px 8px;'
+        'border-radius:6px;background:rgba(0,229,160,0.08);'
+        'border:1px solid rgba(0,229,160,0.2);margin-bottom:8px">'
         '&#10003; Base carregada automaticamente</div>',
         unsafe_allow_html=True,
     )
     st.sidebar.markdown(
-        f'<div style="font-size:10px;color:#3C3C70;margin-top:8px;'
-        f'padding:6px 8px;border-top:1px solid rgba(255,255,255,0.04)">'
+        f'<div style="font-size:10px;color:#00805C;margin-top:8px;'
+        f'padding:6px 8px;border-top:1px solid rgba(0,0,0,0.04)">'
         f'🗃️ {total_records:,} registros na base</div>',
         unsafe_allow_html=True,
     )

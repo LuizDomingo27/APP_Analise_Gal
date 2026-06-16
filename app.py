@@ -27,21 +27,63 @@ st.set_page_config(**PAGE_CONFIG)
 st.markdown(
     """
     <style>
+    /* ── Global text default (prevents invisible/black text after blur) ── */
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"],
+    .stMarkdown, .stText, p, span, label, div {
+        color: #0D1B17;
+    }
+
     /* ── Main area ── */
-    [data-testid="stAppViewContainer"] > .main { background: #0D0D1A; }
-    [data-testid="stMain"] { background: #0D0D1A; }
+    [data-testid="stAppViewContainer"] > .main { background: #FAFCFB; }
+    [data-testid="stMain"] { background: #FAFCFB; }
+    [data-testid="stHeader"] { background: #FAFCFB !important; }
     .main .block-container { padding-top: 1.5rem; padding-bottom: 3rem; max-width: 1400px; }
 
     /* ── Sidebar ── */
-    [data-testid="stSidebar"] { background: #0A0A18 !important; border-right: 1px solid rgba(255,255,255,0.06); }
-    [data-testid="stSidebar"] label { color: #9898BB !important; font-size: 13px !important; }
-    [data-testid="stSidebar"] .stMultiSelect > div { background: rgba(255,255,255,0.04) !important; }
-    [data-testid="stSidebar"] [data-testid="stDateInput"] input { background: rgba(255,255,255,0.04) !important; color: #E8E8FF !important; }
+    [data-testid="stSidebar"] { background: #FFFFFF !important; border-right: 1px solid rgba(0,0,0,0.06); }
+    [data-testid="stSidebar"] * { color: #0D1B17; }
+    [data-testid="stSidebar"] label { color: #4A5752 !important; font-size: 13px !important; }
+
+    /* ── Inputs / Select / Multiselect / DateInput / NumberInput / TextArea ── */
+    .stTextInput input, .stNumberInput input, .stDateInput input,
+    .stTextArea textarea, .stSelectbox [data-baseweb="select"] > div,
+    .stMultiSelect [data-baseweb="select"] > div,
+    [data-baseweb="input"], [data-baseweb="select"] {
+        background: #FFFFFF !important;
+        color: #0D1B17 !important;
+        border: 1px solid rgba(0,184,132,0.35) !important;
+        border-radius: 8px !important;
+    }
+    .stTextInput input:hover, .stNumberInput input:hover, .stDateInput input:hover,
+    .stSelectbox [data-baseweb="select"] > div:hover,
+    .stMultiSelect [data-baseweb="select"] > div:hover {
+        border-color:#0D1B17 !important;
+        box-shadow: 0 0 0 2px rgba(0,229,160,0.15) !important;
+    }
+    .stTextInput input:focus, .stNumberInput input:focus, .stDateInput input:focus,
+    .stTextArea textarea:focus {
+        border-color:#0D1B17 !important;
+        box-shadow: 0 0 0 2px rgba(0,229,160,0.25) !important;
+        outline: none !important;
+    }
+    /* Dropdown menu (BaseWeb popover) */
+    [data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"] {
+        background: #FFFFFF !important;
+        color: #0D1B17 !important;
+        border: 1px solid rgba(0,184,132,0.25) !important;
+    }
+    [data-baseweb="menu"] li, [role="option"] { color: #0D1B17 !important; background: #FFFFFF !important; }
+    [data-baseweb="menu"] li:hover, [role="option"]:hover,
+    [role="option"][aria-selected="true"] { background: rgba(0,229,160,0.15) !important; color: #0D1B17 !important; }
+
+    /* SVG icons inside inputs (chevrons, calendar, clear) */
+    [data-baseweb="select"] svg, [data-baseweb="input"] svg,
+    .stDateInput svg { fill: #00B884 !important; color:#0D1B17 !important; }
 
     /* ── Upload area — discreta ── */
     [data-testid="stSidebar"] [data-testid="stFileUploader"] {
-        background: rgba(255,255,255,0.02) !important;
-        border: 1px dashed rgba(104,104,170,0.22) !important;
+        background: #F2F7F5 !important;
+        border: 1px dashed rgba(0,184,132,0.45) !important;
         border-radius: 8px !important;
     }
     [data-testid="stSidebar"] [data-testid="stFileUploaderDropzone"] {
@@ -50,46 +92,100 @@ st.markdown(
     }
     [data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] span {
         font-size: 11.5px !important;
-        color: #6868AA !important;
+        color: #4A5752 !important;
     }
     [data-testid="stSidebar"] [data-testid="stFileUploaderDropzoneInstructions"] small {
         font-size: 10px !important;
-        color: #4A4A80 !important;
+        color:#4A5752 !important;
     }
     [data-testid="stSidebar"] [data-testid="stFileUploader"] button {
         font-size: 11px !important;
         padding: 4px 12px !important;
-        background: rgba(83,74,183,0.18) !important;
-        color: #9898BB !important;
-        border: 1px solid rgba(83,74,183,0.28) !important;
+        background: rgba(0,229,160,0.25) !important;
+        color: #0D1B17 !important;
+        border: 1px solid rgba(0,184,132,0.45) !important;
         border-radius: 6px !important;
     }
 
     /* ── Expander ── */
-    [data-testid="stExpander"] { background: rgba(255,255,255,0.02) !important; border: 1px solid rgba(255,255,255,0.07) !important; border-radius: 10px !important; }
-    [data-testid="stExpander"] summary { font-size: 13px !important; color: #9898BB !important; }
+    [data-testid="stExpander"] { background: #FFFFFF !important; border: 1px solid rgba(0,0,0,0.08) !important; border-radius: 10px !important; }
+    [data-testid="stExpander"] summary { font-size: 13px !important; color: #0D1B17 !important; }
+    [data-testid="stExpander"] summary:hover { color: #00805C !important; }
 
     /* ── Plotly chart bg ── */
     .js-plotly-plot .plotly .main-svg { background: transparent !important; }
 
     /* ── Buttons ── */
-    .stButton > button {
-        background: rgba(83,74,183,0.15) !important;
-        color: #B8B0FF !important;
-        border: 1px solid rgba(83,74,183,0.35) !important;
+    .stButton > button, .stDownloadButton > button {
+        background: #FFFFFF !important;
+        color: #0D1B17 !important;
+        border: 1px solid #00B884 !important;
         border-radius: 8px !important;
         font-size: 12px !important;
+        font-weight: 600 !important;
+        transition: all 0.18s ease !important;
     }
-    .stButton > button:hover {
-        background: rgba(83,74,183,0.28) !important;
-        border-color: rgba(83,74,183,0.6) !important;
+    .stButton > button:hover, .stDownloadButton > button:hover {
+        background: rgba(0,229,160,0.20) !important;
+        color: #00805C !important;
+        border-color:#0D1B17 !important;
+        box-shadow: 0 0 0 3px rgba(0,229,160,0.15) !important;
+    }
+    .stButton > button:focus, .stButton > button:active,
+    .stDownloadButton > button:focus, .stDownloadButton > button:active {
+        background: rgba(0,229,160,0.28) !important;
+        color: #0D1B17 !important;
+        border-color:#0D1B17 !important;
+        outline: none !important;
+        box-shadow: 0 0 0 3px rgba(0,229,160,0.30) !important;
     }
 
     /* ── Multiselect tags ── */
-    [data-baseweb="tag"] { background: rgba(83,74,183,0.25) !important; }
+    [data-baseweb="tag"] {
+        background: rgba(0,229,160,0.25) !important;
+        color: #0D1B17 !important;
+        border: 1px solid rgba(0,184,132,0.4) !important;
+    }
+    [data-baseweb="tag"] * { color: #0D1B17 !important; }
+
+    /* ── Slider ── */
+    [data-baseweb="slider"] [role="slider"] { background: #00B884 !important; border-color:#0D1B17 !important; }
+
+    /* ── DataFrame / Tables ── */
+    [data-testid="stDataFrame"], [data-testid="stTable"] {
+        background: #FFFFFF !important;
+        color: #0D1B17 !important;
+        border: 1px solid rgba(0,184,132,0.20) !important;
+        border-radius: 8px;
+    }
+    [data-testid="stDataFrame"] * { color: #0D1B17 !important; }
+    [data-testid="stDataFrame"] thead th {
+        background: #F2F7F5 !important;
+        color: #0D1B17 !important;
+        border-bottom: 1px solid rgba(0,184,132,0.35) !important;
+    }
+    [data-testid="stDataFrame"] tbody tr:hover td { background: rgba(0,229,160,0.10) !important; }
+
+    /* ── Tabs ── */
+    .stTabs [data-baseweb="tab-list"] { border-bottom: 1px solid rgba(0,184,132,0.20); }
+    .stTabs [data-baseweb="tab"] { color: #4A5752 !important; }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] { color: #00805C !important; }
+    .stTabs [data-baseweb="tab-highlight"] { background: #00B884 !important; }
+
+    /* ── Alerts ── */
+    [data-testid="stAlert"] { color: #0D1B17 !important; }
+
+    /* ── Metric ── */
+    [data-testid="stMetricValue"] { color: #0D1B17 !important; }
+    [data-testid="stMetricLabel"] { color: #4A5752 !important; }
+    [data-testid="stMetricDelta"] { color: #00805C !important; }
 
     /* ── Divider ── */
-    hr { border-color: rgba(255,255,255,0.06) !important; }
+    hr { border-color: rgba(0,184,132,0.20) !important; }
+
+    /* ── Links ── */
+    a, a:visited { color: #00805C !important; }
+    a:hover { color:#0D1B17 !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -102,8 +198,8 @@ def _header(total_records: int | None = None) -> None:
     if total_records is not None:
         subtitle = (
             f'Base carregada automaticamente — '
-            f'<code style="background:rgba(83,74,183,0.18);padding:2px 7px;'
-            f'border-radius:4px;font-size:11px;color:#C8C0F0">'
+            f'<code style="background:rgba(0,229,160,0.18);padding:2px 7px;'
+            f'border-radius:4px;font-size:11px;color:#4A5752">'
             f'{total_records:,} registros</code>'
         )
     else:
@@ -111,11 +207,11 @@ def _header(total_records: int | None = None) -> None:
 
     st.markdown(
         f"""
-        <div style="padding:0.5rem 0 1.2rem;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:1.4rem">
+        <div style="padding:0.5rem 0 1.2rem;border-bottom:1px solid rgba(0,0,0,0.06);margin-bottom:1.4rem">
             <div style="display:flex;align-items:baseline;gap:12px">
                 <span style="font-size:26px;font-weight:700;color:{COLORS['text_primary']}">🔍 Análise de Defeitos</span>
-                <span style="font-size:12px;color:{COLORS['text_subtle']};background:rgba(83,74,183,0.18);
-                             padding:3px 10px;border-radius:20px;border:1px solid rgba(83,74,183,0.3)">
+                <span style="font-size:12px;color:{COLORS['text_subtle']};background:rgba(0,229,160,0.18);
+                             padding:3px 10px;border-radius:20px;border:1px solid rgba(0,229,160,0.3)">
                     Controle de Qualidade
                 </span>
             </div>
@@ -135,17 +231,17 @@ def _render_import_sidebar(df_total_rows: int) -> None:
 
     # Info rápida da base
     st.sidebar.markdown(
-        f'<div style="font-size:10.5px;color:#3C3C70;padding:6px 8px;'
-        f'border-radius:6px;background:rgba(29,158,117,0.06);'
-        f'border:1px solid rgba(29,158,117,0.15);margin-bottom:8px">'
-        f'<span style="color:#1D9E75">●</span> '
-        f'<span style="color:#6868AA">{df_total_rows:,} registros na base</span></div>',
+        f'<div style="font-size:10.5px;color:#00805C;padding:6px 8px;'
+        f'border-radius:6px;background:rgba(0,229,160,0.06);'
+        f'border:1px solid rgba(0,229,160,0.15);margin-bottom:8px">'
+        f'<span style="color:#00805C">●</span> '
+        f'<span style="color:#4A5752">{df_total_rows:,} registros na base</span></div>',
         unsafe_allow_html=True,
     )
 
     with st.sidebar.expander("➕ Importar novos registros"):
         st.markdown(
-            '<p style="font-size:11.5px;color:#6868AA;margin-bottom:8px;line-height:1.5">'
+            '<p style="font-size:11.5px;color:#4A5752;margin-bottom:8px;line-height:1.5">'
             'Selecione o arquivo do dia para adicionar registros novos.<br>'
             'Duplicatas são ignoradas automaticamente.</p>',
             unsafe_allow_html=True,
@@ -202,7 +298,7 @@ def _render_first_upload_sidebar() -> None:
     Cria a base a partir do arquivo inicial.
     """
     st.sidebar.markdown(
-        '<p style="font-size:11px;color:#6868AA;letter-spacing:0.4px;margin-bottom:6px">'
+        '<p style="font-size:11px;color:#4A5752;letter-spacing:0.4px;margin-bottom:6px">'
         '📂 Carga inicial da base</p>',
         unsafe_allow_html=True,
     )

@@ -1,6 +1,6 @@
 """
 Preview page generator — tema clean light.
-Fundo branco, acentos #099078 / #014B43, warmth #F9ECE5.
+Fundo branco, acentos #00B884 / #00805C, warmth #F2F7F5.
 """
 
 from datetime import datetime
@@ -88,7 +88,7 @@ _SHARED_CSS = """
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{
   background:#FFFFFF;
-  color:#1A2E2A;
+  color:#0D1B17;
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;
   padding:2rem 2.8rem;font-size:14px;line-height:1.55;
   -webkit-font-smoothing:antialiased;
@@ -98,85 +98,85 @@ body{
 .header{
   display:flex;align-items:flex-start;justify-content:space-between;
   gap:1.5rem;padding-bottom:1.2rem;
-  border-bottom:2px solid #099078;margin-bottom:2rem;
+  border-bottom:2px solid #00B884;margin-bottom:2rem;
 }
-.htitle{font-size:20px;font-weight:700;color:#014B43;letter-spacing:-0.3px}
-.htitle span{color:#099078}
-.hsub{font-size:12px;color:#4A7570;margin-top:4px}
+.htitle{font-size:20px;font-weight:700;color:#00805C;letter-spacing:-0.3px}
+.htitle span{color:#0D1B17}
+.hsub{font-size:12px;color:#0D1B17;margin-top:4px}
 .hbadge{
-  font-size:11px;background:#F9ECE5;color:#014B43;
-  border:1px solid #099078;border-radius:20px;
+  font-size:11px;background:#F2F7F5;color:#00805C;
+  border:1px solid #00B884;border-radius:20px;
   padding:3px 12px;white-space:nowrap;align-self:flex-start;font-weight:600;
 }
 .hright{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
-.hts{font-size:11px;color:#4A7570}
+.hts{font-size:11px;color:#0D1B17}
 
 /* ── PDF Button ── */
 .pdf-btn{
   display:inline-flex;align-items:center;gap:7px;
-  background:#014B43;color:#FFFFFF;
+  background:#00805C;color:#FFFFFF;
   border:none;padding:9px 20px;border-radius:7px;cursor:pointer;
   font-size:13px;font-weight:600;letter-spacing:0.2px;
-  box-shadow:0 2px 8px rgba(1,75,67,0.22);
+  box-shadow:0 2px 8px rgba(0,229,160,0.22);
   transition:background 0.2s,box-shadow 0.2s,transform 0.15s;
 }
-.pdf-btn:hover{background:#099078;box-shadow:0 4px 14px rgba(9,144,120,0.30);transform:translateY(-1px)}
+.pdf-btn:hover{background:#00B884;box-shadow:0 4px 14px rgba(0,229,160,0.30);transform:translateY(-1px)}
 .pdf-btn:active{transform:translateY(0)}
 
 /* ── Section label ── */
 .sec{
   font-size:11px;font-weight:700;letter-spacing:1.3px;
-  text-transform:uppercase;color:#099078;
-  padding-left:10px;border-left:3px solid #099078;
+  text-transform:uppercase;color:#0D1B17;
+  padding-left:10px;border-left:3px solid #00B884;
   margin:0 0 1rem;
 }
 
 /* ── Cards ── */
-.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:2rem}
-.cards-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:2rem}
-.cards-5{display:grid;grid-template-columns:repeat(5,1fr);gap:1rem;margin-bottom:2rem}
+.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:0.8rem;margin-bottom:2rem}
+.cards-3{display:grid;grid-template-columns:repeat(3,1fr);gap:0.8rem;margin-bottom:2rem}
+.cards-5{display:grid;grid-template-columns:repeat(5,1fr);gap:0.8rem;margin-bottom:2rem}
 .card{
   background:#FFFFFF;
-  border:1px solid #E0EDEB;
-  border-top:3px solid #099078;
+  border:1px solid #E8EFEC;
+  border-top:3px solid #00B884;
   border-radius:10px;padding:1.1rem 1.2rem;
-  box-shadow:0 1px 4px rgba(9,144,120,0.08);
+  box-shadow:0 1px 4px rgba(0,229,160,0.08);
 }
 .card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .cico{font-size:20px}
 .cpct{
-  text-align:right;font-size:17px;font-weight:700;color:#014B43;line-height:1.1;
+  text-align:right;font-size:17px;font-weight:700;color:#00805C;line-height:1.1;
 }
-.cpct-label{font-size:10px;font-weight:400;color:#4A7570;text-transform:uppercase;letter-spacing:.5px}
-.clabel{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#4A7570;margin-bottom:5px}
-.cv{font-size:26px;font-weight:700;color:#014B43;margin-bottom:3px}
-.cdetail{font-size:11px;color:#4A7570}
+.cpct-label{font-size:10px;font-weight:400;color:#0D1B17;text-transform:uppercase;letter-spacing:.5px}
+.clabel{font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:#0D1B17;margin-bottom:5px}
+.cv{font-size:26px;font-weight:700;color:#00805C;margin-bottom:3px}
+.cdetail{font-size:11px;color:#0D1B17}
 
 /* ── Table wrapper ── */
-.tw{border-radius:10px;border:1px solid #D6E8E5;overflow:hidden;box-shadow:0 1px 4px rgba(9,144,120,0.07)}
+.tw{border-radius:10px;border:1px solid #E8EFEC;overflow:hidden;box-shadow:0 1px 4px rgba(0,229,160,0.07)}
 table{width:100%;border-collapse:collapse;font-size:12.5px}
 
 /* ── Table head ── */
-thead{background:#014B43}
+thead{background:#00805C}
 th{
   padding:11px 13px;text-align:center;
   color:#FFFFFF;font-weight:600;
   font-size:11px;text-transform:uppercase;letter-spacing:.7px;
-  border-bottom:2px solid #099078;
+  border-bottom:2px solid #00B884;
   white-space:nowrap;
 }
 
 /* ── Table body ── */
 td{
   padding:9px 13px;text-align:center;
-  color:#1A2E2A;
-  border-bottom:1px solid #EDF4F3;
+  color:#0D1B17;
+  border-bottom:1px solid #F2F7F5;
 }
 td.tdl{text-align:left}
-tbody tr:nth-child(even){background:#F9ECE5}
+tbody tr:nth-child(even){background:#F2F7F5}
 tbody tr:nth-child(odd){background:#FFFFFF}
-tbody tr:hover{background:#E0EDEB}
-tbody td.hi,tbody td strong.hi{color:#014B43;font-weight:700}
+tbody tr:hover{background:#E8EFEC}
+tbody td.hi,tbody td strong.hi{color:#00805C;font-weight:700}
 
 /* ── Status badges ── */
 .badge-status {
@@ -186,15 +186,15 @@ tbody td.hi,tbody td strong.hi{color:#014B43;font-weight:700}
   font-weight: 600;
   display: inline-block;
 }
-.status-pago { background: #099078; color: #FFFFFF; }
-.status-pendente { background: #EF9F27; color: #1A1530; }
+.status-pago { background: #00B884; color: #FFFFFF; }
+.status-pendente { background: #EF9F27; color:#FFFFFF; }
 .status-contestado { background: #D85A30; color: #FFFFFF; }
 
 /* ── Footer ── */
 .footer{
   margin-top:2rem;padding-top:1rem;
-  border-top:1px solid #D6E8E5;
-  font-size:11px;color:#4A7570;
+  border-top:1px solid #E8EFEC;
+  font-size:11px;color:#0D1B17;
   display:flex;justify-content:space-between;align-items:center;
 }
 
@@ -213,27 +213,27 @@ tbody td.hi,tbody td strong.hi{color:#014B43;font-weight:700}
   body{
     padding:1.2rem 1.8rem;
     background:#FFFFFF!important;
-    color:#1A2E2A!important;
+    color:#0D1B17!important;
   }
 
   .card{
     break-inside:avoid;
     background:#FFFFFF!important;
-    border-top-color:#099078!important;
+    border-top-color:#0D1B17!important;
     box-shadow:none!important;
-    border-color:#D6E8E5!important;
+    border-color:#0D1B17!important;
   }
-  .cv{color:#014B43!important}
-  .cpct{color:#014B43!important}
-  .clabel,.cdetail,.hsub{color:#4A7570!important}
-  .htitle{color:#014B43!important}
-  .htitle span{color:#099078!important}
+  .cv{color:#00805C!important}
+  .cpct{color:#00805C!important}
+  .clabel,.cdetail,.hsub{color:#0D1B17!important}
+  .htitle{color:#00805C!important}
+  .htitle span{color:#0D1B17!important}
 
-  thead,thead tr{background:#014B43!important}
+  thead,thead tr{background:#00805C!important}
   th{
-    background:#014B43!important;
+    background:#00805C!important;
     color:#FFFFFF!important;
-    border-bottom:2px solid #099078!important;
+    border-bottom:2px solid #00B884!important;
     -webkit-print-color-adjust:exact!important;
     print-color-adjust:exact!important;
   }
@@ -244,30 +244,30 @@ tbody td.hi,tbody td strong.hi{color:#014B43;font-weight:700}
     print-color-adjust:exact!important;
   }
   tbody tr:nth-child(even){
-    background:#F9ECE5!important;
+    background:#F2F7F5!important;
     -webkit-print-color-adjust:exact!important;
     print-color-adjust:exact!important;
   }
   tbody td{
-    color:#1A2E2A!important;
-    border-bottom:1px solid #EDF4F3!important;
+    color:#0D1B17!important;
+    border-bottom:1px solid #F2F7F5!important;
   }
-  tbody td strong.hi{color:#014B43!important}
+  tbody td strong.hi{color:#00805C!important}
 
   .badge-status{
     -webkit-print-color-adjust:exact!important;
     print-color-adjust:exact!important;
     color-adjust:exact!important;
   }
-  .status-pago{ background-color: #099078 !important; color: #FFFFFF !important; }
-  .status-pendente{ background-color: #EF9F27 !important; color: #1A1530 !important; }
+  .status-pago{ background-color:#0D1B17 !important; color: #FFFFFF !important; }
+  .status-pendente{ background-color: #EF9F27 !important; color:#FFFFFF !important; }
   .status-contestado{ background-color: #D85A30 !important; color: #FFFFFF !important; }
 
   th,td{padding:7px 10px}
   .footer{
     margin-top:1rem;
-    color:#4A7570!important;
-    border-top-color:#D6E8E5!important;
+    color:#0D1B17!important;
+    border-top-color:#0D1B17!important;
   }
 }
 """

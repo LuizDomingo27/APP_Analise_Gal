@@ -24,7 +24,7 @@ def _section(title: str, icon: str = "📊") -> None:
         <div style="display:flex;align-items:center;gap:10px;margin:2rem 0 0.7rem">
             <span style="font-size:18px">{icon}</span>
             <span style="font-size:15px;font-weight:600;color:{COLORS['text_primary']}">{title}</span>
-            <div style="flex:1;height:1px;background:rgba(255,255,255,0.07);margin-left:6px"></div>
+            <div style="flex:1;height:1px;background:rgba(0,0,0,0.07);margin-left:6px"></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -181,7 +181,7 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
     gap: 12px; flex-wrap: wrap;
   }}
   .info-text {{
-    font-size: 12px; color: #C8C0F0;
+    font-size: 12px; color: #4A5752;
     flex: 1; min-width: 200px;
   }}
   .action-btns {{
@@ -193,29 +193,29 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
     font-size: 12.5px; font-weight: 600; letter-spacing: 0.4px;
     white-space: nowrap; text-decoration: none;
     transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
-    line-height: 1; color: #F8F6FF;
+    line-height: 1; color: #0D1B17;
   }}
   .abtn-print {{
-    background: #14112A;
-    border: 1px solid rgba(123,94,167,0.50);
-    box-shadow: 0 0 14px rgba(123,94,167,0.12);
+    background: #F2F7F5;
+    border: 1px solid rgba(0,229,160,0.50);
+    box-shadow: 0 0 14px rgba(0,229,160,0.12);
   }}
   .abtn-print:hover {{
-    background: rgba(123,94,167,0.20);
-    border-color: rgba(123,94,167,0.80);
-    box-shadow: 0 0 20px rgba(123,94,167,0.28);
+    background: rgba(0,229,160,0.20);
+    border-color: rgba(0,229,160,0.80);
+    box-shadow: 0 0 20px rgba(0,229,160,0.28);
     transform: translateY(-1px);
   }}
   .abtn-save {{
-    background: rgba(123,94,167,0.22);
-    border: 1px solid rgba(123,94,167,0.55);
-    box-shadow: 0 0 14px rgba(123,94,167,0.18);
-    color: #F8F6FF;
+    background: rgba(0,229,160,0.22);
+    border: 1px solid rgba(0,229,160,0.55);
+    box-shadow: 0 0 14px rgba(0,229,160,0.18);
+    color: #0D1B17;
   }}
   .abtn-save:hover {{
-    background: rgba(123,94,167,0.35);
-    border-color: #7B5EA7;
-    box-shadow: 0 0 24px rgba(123,94,167,0.38);
+    background: rgba(0,229,160,0.35);
+    border-color:#0D1B17;
+    box-shadow: 0 0 24px rgba(0,229,160,0.38);
     transform: translateY(-1px);
   }}
   .abtn:active {{ transform: translateY(0); }}
@@ -229,10 +229,10 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
   </span>
   <div class="action-btns">
     <button class="abtn abtn-print" onclick="openPreview()">
-      <span class="abtn-icon">&#128196;</span> Prévia / Imprimir PDF
+      <span class="abtn-icon">&#0F86A3;</span> Prévia / Imprimir PDF
     </button>
     <a class="abtn abtn-save" href="{save_href}" download="defeitos_fornecedor.xlsx">
-      <span class="abtn-icon">&#128190;</span> Salvar por Fornecedor
+      <span class="abtn-icon">&#0F86A3;</span> Salvar por Fornecedor
     </a>
   </div>
 </div>
@@ -287,9 +287,9 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
         thr_mins = float(display[COLS["minutes"]].quantile(0.75))
 
         TH = (
-            "padding:11px 14px;text-align:center;color:#EDE8FF;font-weight:600;"
+            "padding:11px 14px;text-align:center;color:#0D1B17;font-weight:600;"
             "font-size:10px;text-transform:uppercase;letter-spacing:0.9px;"
-            "background:#0D0A1E;border-bottom:1px solid rgba(123,94,167,0.35);"
+            "background:#FFFFFF;border-bottom:1px solid rgba(0,229,160,0.35);"
             "white-space:nowrap;position:sticky;top:0;z-index:1;"
         )
         TH_L = TH + "text-align:left;"
@@ -302,9 +302,9 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
         rows_html = ""
         for i, (_, row) in enumerate(display.iterrows()):
             row_bg = (
-                "background:rgba(123,94,167,0.07);"
+                "background:rgba(0,229,160,0.07);"
                 if i % 2 == 1
-                else "background:#14112A;"
+                else "background:#F2F7F5;"
             )
             cells = ""
             for key in col_keys:
@@ -312,15 +312,15 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
                 is_left = key == COLS["supplier"]
                 align   = "text-align:left;" if is_left else "text-align:center;"
                 base_td = (
-                    f"padding:9px 14px;font-size:12.5px;color:#F8F6FF;"
-                    f"border-bottom:1px solid rgba(123,94,167,0.12);"
+                    f"padding:9px 14px;font-size:12.5px;color:#0D1B17;"
+                    f"border-bottom:1px solid rgba(0,229,160,0.12);"
                     f"{align}{row_bg}"
                 )
 
                 if key == COLS["value_brl"]:
                     fval     = float(val)
-                    badge_bg = "rgba(123,94,167,0.28)" if fval > thr_val else "rgba(123,94,167,0.10)"
-                    badge_cl = "#F8F6FF" if fval > thr_val else "#C8C0F0"
+                    badge_bg = "rgba(0,229,160,0.28)" if fval > thr_val else "rgba(0,229,160,0.10)"
+                    badge_cl = "#0D1B17" if fval > thr_val else "#4A5752"
                     cells += (
                         f'<td style="{base_td}">'
                         f'<span style="background:{badge_bg};color:{badge_cl};'
@@ -329,7 +329,7 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
                         f'R$ {fval:,.2f}</span></td>'
                     )
                 elif key == COLS["pct_remonte"]:
-                    cells += f'<td style="{base_td};color:#C8C0F0;">{float(val):.2f}%</td>'
+                    cells += f'<td style="{base_td};color:#4A5752;">{float(val):.2f}%</td>'
                 elif key == COLS["quantity"]:
                     ival   = int(val)
                     weight = "font-weight:600;" if ival > thr_qty else ""
@@ -341,9 +341,9 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
                 elif key == COLS["real_cut"]:
                     cells += f'<td style="{base_td}">{int(val):,}</td>'
                 elif key == COLS["order"]:
-                    cells += f'<td style="{base_td};color:#C8C0F0;">{int(val)}</td>'
+                    cells += f'<td style="{base_td};color:#4A5752;">{int(val)}</td>'
                 elif key == COLS["date"]:
-                    cells += f'<td style="{base_td};color:#C8C0F0;">{val}</td>'
+                    cells += f'<td style="{base_td};color:#4A5752;">{val}</td>'
                 else:
                     cells += f'<td style="{base_td}">{val}</td>'
 
@@ -352,17 +352,17 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
         table_html = f"""
         <style>
           .nv-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
-          .nv-table-wrap::-webkit-scrollbar-track {{ background:#0D0A1E; border-radius:3px; }}
-          .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(123,94,167,0.45); border-radius:3px; }}
-          .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(123,94,167,0.70); }}
-          .nv-table-wrap tr:hover td {{ background:rgba(123,94,167,0.14)!important; transition:background 0.15s; }}
+          .nv-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
+          .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
+          .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
+          .nv-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
         </style>
         <div class="nv-table-wrap" style="
             max-height:460px; overflow:auto; border-radius:12px;
-            border:1px solid rgba(123,94,167,0.32);
-            border-top:2px solid #7B5EA7;
-            background:#14112A;
-            box-shadow:0 0 22px rgba(123,94,167,0.10);
+            border:1px solid rgba(0,229,160,0.32);
+            border-top:2px solid #00B884;
+            background:#F2F7F5;
+            box-shadow:0 0 22px rgba(0,229,160,0.10);
         ">
           <table style="width:100%;border-collapse:collapse;min-width:980px;">
             <thead><tr>{head_html}</tr></thead>

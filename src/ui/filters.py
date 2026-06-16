@@ -16,7 +16,7 @@ def render_filters(df: pd.DataFrame) -> pd.DataFrame:
     """
     st.sidebar.markdown(
         '<p style="font-size:11px;text-transform:uppercase;letter-spacing:1px;'
-        'color:#6868AA;margin-bottom:12px">⚙️ Filtros</p>',
+        'color:#4A5752;margin-bottom:12px">⚙️ Filtros</p>',
         unsafe_allow_html=True,
     )
 

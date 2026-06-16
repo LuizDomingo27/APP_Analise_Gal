@@ -13,12 +13,12 @@ from src.config.settings import COLORS
 
 def render_metrics(processor: DataProcessor) -> None:
     # ── paleta neon-roxo unificada ────────────────────────────────────────────
-    _NV  = "#7B5EA7"   # neon violet — borda superior / glow
-    _NVB = "#F8F6FF"   # branco neve — valor principal
-    _NVL = "#EDE8FF"   # branco neve suave — label
-    _NVS = "#C8C0F0"   # branco neve tênue — sublabel
-    _BG1 = "#14112A"   # fundo escuro do card (topo)
-    _BG2 = "#0D0B1F"   # fundo escuro do card (base)
+    _NV  = "#00B884"   # neon violet — borda superior / glow
+    _NVB = "#0D1B17"   # branco neve — valor principal
+    _NVL = "#0D1B17"   # branco neve suave — label
+    _NVS = "#4A5752"   # branco neve tênue — sublabel
+    _BG1 = "#F2F7F5"   # fundo escuro do card (topo)
+    _BG2 = "#FFFFFF"   # fundo escuro do card (base)
 
     cols = st.columns(5)
     cards = [
@@ -31,11 +31,11 @@ def render_metrics(processor: DataProcessor) -> None:
 
     card_style = f"""
         background: linear-gradient(160deg, {_BG1} 0%, {_BG2} 100%);
-        border: 1px solid rgba(123,94,167,0.32);
+        border: 1px solid rgba(0,229,160,0.32);
         border-top: 2px solid {_NV};
         border-radius: 12px;
         padding: 1.1rem 1.2rem 1rem;
-        box-shadow: 0 0 22px rgba(123,94,167,0.13),
+        box-shadow: 0 0 22px rgba(0,229,160,0.13),
                     0 2px 8px rgba(0,0,0,0.35);
         position: relative; overflow: hidden;
     """
@@ -48,7 +48,7 @@ def render_metrics(processor: DataProcessor) -> None:
                     <div style="
                         position:absolute;top:-18px;right:-18px;
                         width:64px;height:64px;border-radius:50%;
-                        background:radial-gradient(circle, rgba(123,94,167,0.22) 0%, transparent 70%);
+                        background:radial-gradient(circle, rgba(0,229,160,0.22) 0%, transparent 70%);
                         pointer-events:none;
                     "></div>
                     <div style="font-size:10px;color:{_NVL};

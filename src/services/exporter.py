@@ -1,6 +1,6 @@
 """
 Exportador de dados agrupados por Fornecedor.
-Tema clean: fundo branco, acentos #014B43 / #099078, linhas pares #F9ECE5.
+Tema clean: fundo branco, acentos #00805C / #00B884, linhas pares #F2F7F5.
 """
 
 import io

@@ -18,32 +18,39 @@ PAGE_CONFIG = {
 
 # ── Palette ──────────────────────────────────────────────────────────────────
 COLORS = {
-    "primary":       "#534AB7",
-    "primary_light": "#7F77DD",
-    "teal":          "#1D9E75",
+    "primary":       "#00B884",
+    "primary_light": "#5FF6C6",
+    "teal":          "#00E5A0",
     "red":           "#E24B4A",
-    "blue":          "#378ADD",
+    "blue":          "#0EA5C7",
     "coral":         "#D85A30",
     "amber":         "#EF9F27",
-    "gray":          "#888780",
-    "green":         "#639922",
-    "text_primary":  "#E8E8FF",
-    "text_muted":    "#9898BB",
-    "text_subtle":   "#6868AA",
-    "border":        "rgba(255,255,255,0.07)",
+    "gray":          "#7C8985",
+    "green":         "#00B884",
+    "text_primary":  "#0D1B17",
+    "text_muted":    "#4A5752",
+    "text_subtle":   "#7C8985",
+    "border":        "rgba(0,0,0,0.07)",
 }
 
 COLOR_SEQUENCE = [
-    "#534AB7", "#1D9E75", "#E24B4A", "#378ADD",
-    "#D85A30", "#EF9F27", "#7F77DD", "#639922",
-    "#888780", "#0F6E56",
+    "#00E5A0",
+    "#00B884",
+    "#0EA5C7",
+    "#5FF6C6",
+    "#3DDC97",
+    "#F0B840",
+    "#7C8985",
+    "#E24B4A",
+    "#0F8060",
+    "#00805C",
 ]
 
 DEFECT_COLORS = {
     "PONTO ESTOURADO": "#E24B4A",
-    "SEM ARREMATE":    "#378ADD",
+    "SEM ARREMATE":    "#0EA5C7",
     "ESGARÇANDO":      "#EF9F27",
-    "TAMANHO ERRADO":  "#888780",
+    "TAMANHO ERRADO":  "#7C8985",
     "TROCAR":          "#D85A30",
 }
 
@@ -69,25 +76,25 @@ COLS = {
 PLOTLY_BASE = {
     "paper_bgcolor": "rgba(0,0,0,0)",
     "plot_bgcolor":  "rgba(0,0,0,0)",
-    "font":          {"family": "Inter, sans-serif", "color": "#9898BB", "size": 12},
+    "font":          {"family": "Inter, sans-serif", "color": "#4A5752", "size": 12},
     "margin":        {"t": 30, "b": 20, "l": 10, "r": 24},
     "showlegend":    False,
-    "hoverlabel":    {"bgcolor": "#1E1E40", "bordercolor": "#534AB7", "font_color": "#E8E8FF"},
+    "hoverlabel":    {"bgcolor": "#FFFFFF", "bordercolor": "#00B884", "font_color": "#0D1B17"},
 }
 
 AXIS_X = {
-    "gridcolor":   "rgba(255,255,255,0.05)",
-    "linecolor":   "rgba(255,255,255,0.08)",
+    "gridcolor":   "rgba(0,0,0,0.06)",
+    "linecolor":   "rgba(0,0,0,0.10)",
     "tickcolor":   "rgba(0,0,0,0)",
-    "tickfont":    {"color": "#9898BB", "size": 11},
-    "zerolinecolor": "rgba(255,255,255,0.08)",
+    "tickfont":    {"color": "#4A5752", "size": 11},
+    "zerolinecolor": "rgba(0,0,0,0.10)",
 }
 
 AXIS_Y = {
-    "gridcolor":   "rgba(255,255,255,0.05)",
-    "linecolor":   "rgba(255,255,255,0.08)",
+    "gridcolor":   "rgba(0,0,0,0.06)",
+    "linecolor":   "rgba(0,0,0,0.10)",
     "tickcolor":   "rgba(0,0,0,0)",
-    "tickfont":    {"color": "#9898BB", "size": 11},
-    "zerolinecolor": "rgba(255,255,255,0.08)",
+    "tickfont":    {"color": "#4A5752", "size": 11},
+    "zerolinecolor": "rgba(0,0,0,0.10)",
     "showgrid":    False,
 }

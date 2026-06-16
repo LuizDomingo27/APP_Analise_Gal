@@ -47,18 +47,18 @@ from src.ui.preview import _generate_historico_html
 st.markdown(
     """
     <style>
-    [data-testid="stAppViewContainer"] > .main { background: #0D0D1A; }
-    [data-testid="stMain"]                      { background: #0D0D1A; }
+    [data-testid="stAppViewContainer"] > .main { background: #FAFCFB; }
+    [data-testid="stMain"]                      { background: #FAFCFB; }
     .main .block-container {
         padding-top: 1.5rem;
         padding-bottom: 3rem;
         max-width: 1400px;
     }
     [data-testid="stSidebar"] {
-        background: #0A0A18 !important;
-        border-right: 1px solid rgba(255,255,255,0.06);
+        background: #FFFFFF !important;
+        border-right: 1px solid rgba(0,0,0,0.06);
     }
-    [data-testid="stSidebar"] label { color: #9898BB !important; font-size: 13px !important; }
+    [data-testid="stSidebar"] label { color: #4A5752 !important; font-size: 13px !important; }
     .stButton > button {
         height: 38px !important;
         min-width: 160px !important;
@@ -66,14 +66,14 @@ st.markdown(
         font-weight: 500 !important;
         border-radius: 6px !important;
         padding: 0 20px !important;
-        background: rgba(83,74,183,0.15) !important;
-        color: #B8B0FF !important;
-        border: 1px solid rgba(83,74,183,0.35) !important;
+        background: rgba(0,229,160,0.15) !important;
+        color:#00805C !important;
+        border: 1px solid rgba(0,229,160,0.35) !important;
         transition: all .15s ease !important;
     }
     .stButton > button:hover {
-        background: rgba(83,74,183,0.28) !important;
-        border-color: rgba(83,74,183,0.6) !important;
+        background: rgba(0,229,160,0.28) !important;
+        border-color: rgba(0,229,160,0.6) !important;
     }
     [data-testid="stDownloadButton"] > button {
         height: 38px !important;
@@ -84,7 +84,7 @@ st.markdown(
         padding: 0 20px !important;
     }
     [data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
-    hr { border-color: rgba(255,255,255,0.06) !important; }
+    hr { border-color: rgba(0,0,0,0.06) !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -107,8 +107,8 @@ _ORDERED_COLS = [
 
 # Ícone e cor de fundo (HTML) por status
 _STATUS_BADGE = {
-    "Pago":       ("✅", "#1D9E75", "#FFFFFF"),
-    "Pendente":   ("⏳", "#EF9F27", "#1A1530"),
+    "Pago":       ("✅", "#00E5A0", "#FFFFFF"),
+    "Pendente":   ("⏳", "#EF9F27", "#E8EFEC"),
     "Contestado": ("⚠️", "#D85A30", "#FFFFFF"),
 }
 
@@ -122,19 +122,19 @@ def _kpi_card(col, icon: str, label: str, value: str, accent: str) -> None:
         st.markdown(
             f"""
             <div style="
-                background: linear-gradient(160deg, #1E1019 0%, #130C13 100%);
+                background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%);
                 border: 1px solid {accent}40;
                 border-top: 2px solid {accent};
                 border-radius: 12px;
                 padding: 1rem 1.2rem 0.9rem;
                 box-shadow: 0 0 22px {accent}18, 0 2px 8px rgba(0,0,0,0.35);
             ">
-                <div style="font-size:10px; color:#EDE8FF;
+                <div style="font-size:10px; color:#0D1B17;
                             text-transform:uppercase; letter-spacing:0.9px;
                             margin-bottom:6px; font-weight:600">
                     <span style="color:{accent}; margin-right:5px">{icon}</span>{label}
                 </div>
-                <div style="font-size:22px; font-weight:700; color:#F8F6FF;
+                <div style="font-size:22px; font-weight:700; color:#0D1B17;
                             letter-spacing:-0.4px; white-space:nowrap;
                             overflow:hidden; text-overflow:ellipsis">
                     {value}
@@ -159,16 +159,16 @@ def main() -> None:
     st.markdown(
         f"""
         <div style="padding:0.5rem 0 1.2rem;
-                    border-bottom:1px solid rgba(255,255,255,0.06);
+                    border-bottom:1px solid rgba(0,0,0,0.06);
                     margin-bottom:1.4rem">
             <div style="display:flex;align-items:baseline;gap:12px">
                 <span style="font-size:26px;font-weight:700;color:{COLORS['text_primary']}">
                     🗃️ Histórico de Cobranças
                 </span>
                 <span style="font-size:12px;color:{COLORS['text_subtle']};
-                             background:rgba(83,74,183,0.18);
+                             background:rgba(0,229,160,0.18);
                              padding:3px 10px;border-radius:20px;
-                             border:1px solid rgba(83,74,183,0.3)">
+                             border:1px solid rgba(0,229,160,0.3)">
                     bd_cobranca.xlsx
                 </span>
             </div>
@@ -233,7 +233,7 @@ def main() -> None:
     # ── Filtros (sidebar) ─────────────────────────────────────────────────────
     st.sidebar.markdown(
         '<p style="font-size:11px;text-transform:uppercase;letter-spacing:1px;'
-        'color:#6868AA;margin-bottom:12px">Filtros</p>',
+        'color:#4A5752;margin-bottom:12px">Filtros</p>',
         unsafe_allow_html=True,
     )
 
@@ -249,7 +249,7 @@ def main() -> None:
             max_date = date.today()
 
         st.sidebar.markdown(
-            '<p style="font-size:11px;color:#9898BB;margin:0 0 4px">Período:</p>',
+            '<p style="font-size:11px;color:#4A5752;margin:0 0 4px">Período:</p>',
             unsafe_allow_html=True,
         )
         date_from = st.sidebar.date_input(
@@ -262,7 +262,7 @@ def main() -> None:
         )
 
     st.sidebar.markdown(
-        '<p style="font-size:11px;color:#9898BB;margin:12px 0 4px">Fornecedor ou CNPJ:</p>',
+        '<p style="font-size:11px;color:#4A5752;margin:12px 0 4px">Fornecedor ou CNPJ:</p>',
         unsafe_allow_html=True,
     )
     search_term = st.sidebar.text_input(
@@ -272,7 +272,7 @@ def main() -> None:
 
     # ── Filtro por status ─────────────────────────────────────────────────────
     st.sidebar.markdown(
-        '<p style="font-size:11px;color:#9898BB;margin:12px 0 4px">Status:</p>',
+        '<p style="font-size:11px;color:#4A5752;margin:12px 0 4px">Status:</p>',
         unsafe_allow_html=True,
     )
     status_filter = st.sidebar.multiselect(
@@ -343,9 +343,9 @@ def main() -> None:
 
     # ── 5 Cards KPI ───────────────────────────────────────────────────────────
     c1, c2, c3, c4, c5 = st.columns(5)
-    _kpi_card(c1, "🧵", "PEÇAS COM DEFEITO",    f"{total_pieces:,}",         "#2980B9")
-    _kpi_card(c2, "📋", "TOTAL DEFEITOS",        str(n_records),              "#534AB7")
-    _kpi_card(c3, "⏱️", "TOTAL MINUTOS",         f"{total_minutes:,.0f} min", "#1D9E75")
+    _kpi_card(c1, "🧵", "PEÇAS COM DEFEITO",    f"{total_pieces:,}",         "#0F86A3")
+    _kpi_card(c2, "📋", "TOTAL DEFEITOS",        str(n_records),              "#00B884")
+    _kpi_card(c3, "⏱️", "TOTAL MINUTOS",         f"{total_minutes:,.0f} min", "#00E5A0")
     _kpi_card(c4, "💰", "VALOR TOTAL",           f"R$ {total_value:,.2f}",    "#E24B4A")
     _kpi_card(c5, "📦", "ORDENS ÚNICAS (OM)",    str(n_orders),               "#EF9F27")
 
@@ -356,8 +356,8 @@ def main() -> None:
         f"""
         <div style="
             font-size:11px; color:{COLORS['text_subtle']};
-            background:rgba(83,74,183,0.08);
-            border:1px solid rgba(83,74,183,0.18);
+            background:rgba(0,229,160,0.08);
+            border:1px solid rgba(0,229,160,0.18);
             border-radius:6px; padding:6px 14px; margin-bottom:12px;
             display:inline-block;
         ">
@@ -372,18 +372,18 @@ def main() -> None:
         """
         <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">
             <span style="font-size:11px;padding:3px 10px;border-radius:10px;
-                         background:#1D9E75;color:#fff;font-weight:600">
+                         background:#00E5A0;color:#fff;font-weight:600">
                 ✅ Pago
             </span>
             <span style="font-size:11px;padding:3px 10px;border-radius:10px;
-                         background:#EF9F27;color:#1A1530;font-weight:600">
+                         background:#EF9F27;color:#0D1B17;font-weight:600">
                 ⏳ Pendente
             </span>
             <span style="font-size:11px;padding:3px 10px;border-radius:10px;
                          background:#D85A30;color:#fff;font-weight:600">
                 ⚠️ Contestado
             </span>
-            <span style="font-size:11px;color:#6868AA;align-self:center">
+            <span style="font-size:11px;color:#4A5752;align-self:center">
                 &nbsp;· Selecione o status na coluna e clique em Salvar alterações
             </span>
         </div>
@@ -417,9 +417,9 @@ def main() -> None:
     headers = list(table_view_df.columns)
     
     TH = (
-        "padding:11px 14px;text-align:center;color:#EDE8FF;font-weight:600;"
+        "padding:11px 14px;text-align:center;color:#FFFFFF;font-weight:600;"
         "font-size:10px;text-transform:uppercase;letter-spacing:0.9px;"
-        "background:#0D0A1E;border-bottom:1px solid rgba(123,94,167,0.35);"
+        "background:#00805C;border-bottom:2px solid #00B884;"
         "white-space:nowrap;position:sticky;top:0;z-index:1;"
     )
     TH_L = TH + "text-align:left;"
@@ -433,24 +433,24 @@ def main() -> None:
         is_left = h in ("Fornecedor", "Remonte")
         align = "text-align:left;" if is_left else "text-align:center;"
         base_td = (
-            f"padding:9px 14px;font-size:12.5px;color:#F8F6FF;"
-            f"border-bottom:1px solid rgba(123,94,167,0.12);"
+            f"padding:9px 14px;font-size:12.5px;color:#0D1B17;"
+            f"border-bottom:1px solid rgba(0,229,160,0.12);"
             f"{align}{row_bg}"
         )
         return f'<td style="{base_td}">{val}</td>'
 
     rows_html = "".join(
-        f"<tr>" + "".join(_make_cell(h, row[h], "background:rgba(123,94,167,0.07);" if i % 2 == 1 else "background:#14112A;") for h in headers) + "</tr>"
+        f"<tr>" + "".join(_make_cell(h, row[h], "background:#FFFFFF;" if i % 2 == 1 else "background:#F2F7F5;") for h in headers) + "</tr>"
         for i, (_, row) in enumerate(table_view_df.iterrows())
     )
 
     table_html = f"""
     <style>
       .nv-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
-      .nv-table-wrap::-webkit-scrollbar-track {{ background:#0D0A1E; border-radius:3px; }}
-      .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(123,94,167,0.45); border-radius:3px; }}
-      .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(123,94,167,0.70); }}
-      .nv-table-wrap tr:hover td {{ background:rgba(123,94,167,0.14)!important; transition:background 0.15s; }}
+      .nv-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
+      .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
+      .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
+      .nv-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
       .badge-status {{
         padding: 3px 8px;
         border-radius: 4px;
@@ -458,16 +458,16 @@ def main() -> None:
         font-weight: 600;
         display: inline-block;
       }}
-      .status-pago {{ background: #1D9E75 !important; color: #FFFFFF !important; }}
-      .status-pendente {{ background: #EF9F27 !important; color: #1A1530 !important; }}
+      .status-pago {{ background: #00E5A0 !important; color: #FFFFFF !important; }}
+      .status-pendente {{ background: #EF9F27 !important; color:#FFFFFF !important; }}
       .status-contestado {{ background: #D85A30 !important; color: #FFFFFF !important; }}
     </style>
     <div class="nv-table-wrap" style="
         max-height:480px; overflow:auto; border-radius:12px;
-        border:1px solid rgba(123,94,167,0.32);
-        border-top:2px solid #7B5EA7;
-        background:#14112A;
-        box-shadow:0 0 22px rgba(123,94,167,0.10);
+        border:1px solid rgba(0,229,160,0.32);
+        border-top:2px solid #00B884;
+        background:#F2F7F5;
+        box-shadow:0 0 22px rgba(0,229,160,0.10);
     ">
       <table style="width:100%;border-collapse:collapse;min-width:1100px;">
         <thead><tr>{head_html}</tr></thead>
@@ -556,14 +556,14 @@ def main() -> None:
     width: 100%; min-width: 160px; height: 38px; border-radius: 6px; cursor: pointer;
     font-size: 14px; font-weight: 500;
     transition: all .15s ease;
-    background: rgba(83,74,183,0.15);
-    color: #B8B0FF;
-    border: 1px solid rgba(83,74,183,0.35);
+    background: rgba(0,229,160,0.15);
+    color:#00805C;
+    border: 1px solid rgba(0,229,160,0.35);
     padding: 0 20px;
   }}
   .btn:hover {{
-    background: rgba(83,74,183,0.28);
-    border-color: rgba(83,74,183,0.6);
+    background: rgba(0,229,160,0.28);
+    border-color: rgba(0,229,160,0.6);
   }}
   .btn:active {{ transform: scale(0.98); }}
 </style>
@@ -605,19 +605,19 @@ def main() -> None:
 
     # ── Status sidebar ────────────────────────────────────────────────────────
     st.sidebar.markdown(
-        '<hr style="border-color:rgba(255,255,255,0.06);margin:16px 0">',
+        '<hr style="border-color:rgba(0,0,0,0.06);margin:16px 0">',
         unsafe_allow_html=True,
     )
-    ok_color = "#1D9E75" if BD_COBRANCA.exists() else "#EF9F27"
+    ok_color = "#00E5A0" if BD_COBRANCA.exists() else "#EF9F27"
     ok_txt   = "bd_cobranca.xlsx presente" if BD_COBRANCA.exists() else "Arquivo ainda não criado"
     st.sidebar.markdown(
         f'<div style="font-size:10.5px;color:{ok_color};padding:6px 8px;'
-        f'border-radius:6px;background:rgba(29,158,117,0.06);'
+        f'border-radius:6px;background:rgba(0,229,160,0.06);'
         f'border:1px solid {ok_color}33;">✓ {ok_txt}</div>',
         unsafe_allow_html=True,
     )
     st.sidebar.markdown(
-        f'<div style="font-size:10px;color:#3C3C70;margin-top:8px;padding:4px 8px">'
+        f'<div style="font-size:10px;color:#00805C;margin-top:8px;padding:4px 8px">'
         f'{len(df_hist) - 1} registro(s) no total</div>',
         unsafe_allow_html=True,
     )

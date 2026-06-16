@@ -56,9 +56,9 @@ def _render_html_table(df_display: pd.DataFrame, height: int = 400) -> None:
     headers = list(df_display.columns)
     
     TH = (
-        "padding:11px 14px;text-align:center;color:#EDE8FF;font-weight:600;"
-        "font-size:10px;text-transform:uppercase;letter-spacing:0.9px;"
-        "background:#0D0A1E;border-bottom:1px solid rgba(123,94,167,0.35);"
+        "padding:11px 14px;text-align:center;color:#FFFFFF;font-weight:600;"
+        "font-size:11px;text-transform:uppercase;letter-spacing:0.7px;"
+        "background:#00805C;border-bottom:2px solid #00B884;"
         "white-space:nowrap;position:sticky;top:0;z-index:1;"
     )
     TH_L = TH + "text-align:left;"
@@ -72,14 +72,14 @@ def _render_html_table(df_display: pd.DataFrame, height: int = 400) -> None:
         is_left = h in ("Fornecedor", "Remonte / Tipo de Defeito", "Remonte")
         align = "text-align:left;" if is_left else "text-align:center;"
         base_td = (
-            f"padding:9px 14px;font-size:12.5px;color:#F8F6FF;"
-            f"border-bottom:1px solid rgba(123,94,167,0.12);"
+            f"padding:9px 14px;font-size:12.5px;color:#0D1B17;"
+            f"border-bottom:1px solid rgba(0,229,160,0.12);"
             f"{align}{row_bg}"
         )
         if h in ("Valor do Processo (R$)", "Valor (R$)"):
             return (
                 f'<td style="{base_td}">'
-                f'<span style="background:rgba(123,94,167,0.28);color:#F8F6FF;'
+                f'<span style="background:#00B884;color:#FFFFFF;'
                 f'padding:3px 9px;border-radius:6px;'
                 f'font-size:12px;font-weight:600;white-space:nowrap;">'
                 f'{val}</span></td>'
@@ -87,24 +87,24 @@ def _render_html_table(df_display: pd.DataFrame, height: int = 400) -> None:
         return f'<td style="{base_td}">{val}</td>'
 
     rows_html = "".join(
-        f"<tr>" + "".join(_make_cell(h, row[h], "background:rgba(123,94,167,0.07);" if i % 2 == 1 else "background:#14112A;") for h in headers) + "</tr>"
+        f"<tr>" + "".join(_make_cell(h, row[h], "background:#FFFFFF;" if i % 2 == 1 else "background:#F2F7F5;") for h in headers) + "</tr>"
         for i, (_, row) in enumerate(df_display.iterrows())
     )
 
     table_html = f"""
     <style>
       .nv-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
-      .nv-table-wrap::-webkit-scrollbar-track {{ background:#0D0A1E; border-radius:3px; }}
-      .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(123,94,167,0.45); border-radius:3px; }}
-      .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(123,94,167,0.70); }}
-      .nv-table-wrap tr:hover td {{ background:rgba(123,94,167,0.14)!important; transition:background 0.15s; }}
+      .nv-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
+      .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
+      .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
+      .nv-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
     </style>
     <div class="nv-table-wrap" style="
         max-height:{height}px; overflow:auto; border-radius:12px;
-        border:1px solid rgba(123,94,167,0.32);
-        border-top:2px solid #7B5EA7;
-        background:#14112A;
-        box-shadow:0 0 22px rgba(123,94,167,0.10);
+        border:1px solid rgba(0,229,160,0.32);
+        border-top:2px solid #00B884;
+        background:#F2F7F5;
+        box-shadow:0 0 22px rgba(0,229,160,0.10);
     ">
       <table style="width:100%;border-collapse:collapse;min-width:980px;">
         <thead><tr>{head_html}</tr></thead>
@@ -130,7 +130,7 @@ def _show_preview_dialog(
 ) -> None:
     """
     Modal de pré-visualização — cores idênticas à tela Análise de Defeitos.
-    Gradiente escuro 1E1019→130C13, acento vermelho #E24B4A, borda roxo #534AB7.
+    Gradiente escuro 1E1019→130C13, acento vermelho #E24B4A, borda roxo #00B884.
     """
     today_br = date.today().strftime("%d/%m/%Y")
 
@@ -139,7 +139,7 @@ def _show_preview_dialog(
         """
         <style>
         /* Cabeçalho do dialog */
-        [data-testid="stDialogContent"] { background: #0D0D1A !important; }
+        [data-testid="stDialogContent"] { background: #FAFCFB !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -149,7 +149,7 @@ def _show_preview_dialog(
     st.markdown(
         f"""
         <div style="
-            background: linear-gradient(160deg, #1E1019 0%, #130C13 100%);
+            background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%);
             border: 1px solid rgba(226,75,74,0.32);
             border-top: 3px solid #E24B4A;
             border-radius: 12px;
@@ -161,36 +161,36 @@ def _show_preview_dialog(
                         align-items:flex-start; flex-wrap:wrap; gap:10px;">
                 <div>
                     <div style="
-                        font-size:10px; color:#EDE8FF;
+                        font-size:10px; color:#0D1B17;
                         text-transform:uppercase; letter-spacing:0.9px;
                         margin-bottom:5px; font-weight:600;
                     ">
                         <span style="color:#E24B4A; margin-right:5px">✦</span>
                         AVISO DE COBRANÇA — DEFEITOS / REMONTES
                     </div>
-                    <div style="font-size:20px; font-weight:700; color:#F8F6FF;
+                    <div style="font-size:20px; font-weight:700; color:#0D1B17;
                                 line-height:1.2; letter-spacing:-0.3px;">
                         {supplier}
                     </div>
-                    <div style="font-size:12px; color:#C8C0F0; margin-top:5px;">
+                    <div style="font-size:12px; color:#4A5752; margin-top:5px;">
                         CNPJ:&nbsp;
                         <span style="
-                            color:#1D9E75; font-weight:700;
-                            background:rgba(29,158,117,0.12);
+                            color:#00805C; font-weight:700;
+                            background:rgba(0,229,160,0.12);
                             padding:1px 8px; border-radius:4px;
-                            border:1px solid rgba(29,158,117,0.25);
+                            border:1px solid rgba(0,229,160,0.25);
                         ">{cnpj}</span>
                     </div>
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-size:9px; color:#9898BB; text-transform:uppercase;
+                    <div style="font-size:9px; color:#4A5752; text-transform:uppercase;
                                 letter-spacing:0.6px; margin-bottom:3px;">Emissão</div>
-                    <div style="font-size:13px; color:#EDE8FF; font-weight:600;">{today_br}</div>
+                    <div style="font-size:13px; color:#0D1B17; font-weight:600;">{today_br}</div>
                     <div style="
                         margin-top:6px;
-                        font-size:11px; color:#534AB7;
-                        background:rgba(83,74,183,0.15);
-                        border:1px solid rgba(83,74,183,0.30);
+                        font-size:11px; color:#0D1B17;
+                        background:rgba(0,229,160,0.15);
+                        border:1px solid rgba(0,229,160,0.30);
                         padding:2px 10px; border-radius:20px;
                     ">Controle de Qualidade</div>
                 </div>
@@ -203,13 +203,13 @@ def _show_preview_dialog(
     # ── KPI cards — mesmo padrão de _render_summary_metrics ──────────────────
     c1, c2, c3 = st.columns(3)
     _mini_kpi(c1, "✦ TOTAL A COBRAR",  f"R$ {total:,.2f}", "#E24B4A")
-    _mini_kpi(c2, "✦ REGISTROS",       str(n_records),      "#534AB7")
-    _mini_kpi(c3, "✦ ORDENS (OM)",     str(n_orders),       "#1D9E75")
+    _mini_kpi(c2, "✦ REGISTROS",       str(n_records),      "#00B884")
+    _mini_kpi(c3, "✦ ORDENS (OM)",     str(n_orders),       "#00E5A0")
 
     # ── Label da tabela ───────────────────────────────────────────────────────
     st.markdown(
         """
-        <p style="font-size:10px; color:#EDE8FF; text-transform:uppercase;
+        <p style="font-size:10px; color:#0D1B17; text-transform:uppercase;
                   letter-spacing:0.9px; margin:14px 0 5px; font-weight:600;">
             <span style="color:#E24B4A; margin-right:5px">✦</span>
             DETALHAMENTO DOS REGISTROS
@@ -226,7 +226,7 @@ def _show_preview_dialog(
         f"""
         <div style="
             display:flex; justify-content:space-between; align-items:center;
-            background: linear-gradient(160deg, #1E1019 0%, #130C13 100%);
+            background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%);
             border: 1px solid rgba(226,75,74,0.35);
             border-left: 3px solid #E24B4A;
             border-radius: 8px;
@@ -234,12 +234,12 @@ def _show_preview_dialog(
             margin-top: 8px;
             box-shadow: 0 0 16px rgba(226,75,74,0.08);
         ">
-            <span style="font-size:12px; color:#C8C0F0; line-height:1.5;">
+            <span style="font-size:12px; color:#4A5752; line-height:1.5;">
                 ⚠️&nbsp; Após confirmar, os registros serão removidos da planilha
                 ativa e salvos em&nbsp;
                 <code style="
-                    color:#7F77DD;
-                    background:rgba(83,74,183,0.18);
+                    color:#00805C;
+                    background:rgba(0,229,160,0.18);
                     padding:1px 6px; border-radius:3px;
                     font-size:11px;
                 ">dataset/bd_cobranca.xlsx</code>
@@ -283,7 +283,7 @@ def _mini_kpi(col, label: str, value: str, accent: str) -> None:
         st.markdown(
             f"""
             <div style="
-                background: linear-gradient(160deg, #1E1019 0%, #130C13 100%);
+                background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%);
                 border: 1px solid {accent}52;
                 border-top: 2px solid {accent};
                 border-radius: 12px;
@@ -292,14 +292,14 @@ def _mini_kpi(col, label: str, value: str, accent: str) -> None:
                 text-align: center;
             ">
                 <div style="
-                    font-size:9px; color:#EDE8FF;
+                    font-size:9px; color:#0D1B17;
                     text-transform:uppercase; letter-spacing:0.9px;
                     margin-bottom:6px; font-weight:600;
                 ">
                     <span style="color:{accent}; margin-right:4px">✦</span>{label}
                 </div>
                 <div style="
-                    font-size:19px; font-weight:700; color:#F8F6FF;
+                    font-size:19px; font-weight:700; color:#0D1B17;
                     line-height:1.2; letter-spacing:-0.3px;
                     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
                 ">
@@ -319,7 +319,7 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
     # ── Configurações na Sidebar ──────────────────────────────────────────────
     st.sidebar.markdown(
         '<p style="font-size:11px;text-transform:uppercase;letter-spacing:1px;'
-        'color:#6868AA;margin-top:15px;margin-bottom:5px">⚙️ Configurações</p>',
+        'color:#4A5752;margin-top:15px;margin-bottom:5px">⚙️ Configurações</p>',
         unsafe_allow_html=True,
     )
     charge_threshold = st.sidebar.number_input(
@@ -442,7 +442,7 @@ def _render_page_header(charge_threshold: float) -> None:
     st.markdown(
         f"""
         <div style="padding:0.5rem 0 1.2rem;
-                    border-bottom:1px solid rgba(255,255,255,0.06);
+                    border-bottom:1px solid rgba(0,0,0,0.06);
                     margin-bottom:1.4rem">
             <div style="display:flex;align-items:baseline;gap:12px">
                 <span style="font-size:26px;font-weight:700;
@@ -450,9 +450,9 @@ def _render_page_header(charge_threshold: float) -> None:
                     💰 Cobrança de Fornecedores
                 </span>
                 <span style="font-size:12px;color:{COLORS['text_subtle']};
-                             background:rgba(83,74,183,0.18);
+                             background:rgba(0,229,160,0.18);
                              padding:3px 10px;border-radius:20px;
-                             border:1px solid rgba(83,74,183,0.3)">
+                             border:1px solid rgba(0,229,160,0.3)">
                     Gestão de Desconto
                 </span>
             </div>
@@ -497,8 +497,8 @@ def _render_summary_metrics(above_threshold: pd.DataFrame) -> None:
     max_value    = above_threshold.iloc[0]["_total"]
 
     _NV  = "#E24B4A"
-    _BG1 = "#1E1019"
-    _BG2 = "#130C13"
+    _BG1 = "#FFFFFF"
+    _BG2 = "#F2F7F5"
 
     card_style = f"""
         background:linear-gradient(160deg,{_BG1} 0%,{_BG2} 100%);
@@ -520,17 +520,17 @@ def _render_summary_metrics(above_threshold: pd.DataFrame) -> None:
             st.markdown(
                 f"""
                 <div style="{card_style}">
-                    <div style="font-size:10px;color:#EDE8FF;
+                    <div style="font-size:10px;color:#0D1B17;
                                 text-transform:uppercase;letter-spacing:0.9px;
                                 margin-bottom:8px;font-weight:600">
                         <span style="color:{_NV};margin-right:5px">✦</span>{label}
                     </div>
-                    <div style="font-size:20px;font-weight:700;color:#F8F6FF;
+                    <div style="font-size:20px;font-weight:700;color:#0D1B17;
                                 line-height:1.2;letter-spacing:-0.3px;
                                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                         {value}
                     </div>
-                    <div style="font-size:11px;color:#C8C0F0;margin-top:5px">{sub}</div>
+                    <div style="font-size:11px;color:#4A5752;margin-top:5px">{sub}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -541,8 +541,8 @@ def _render_supplier_badge(supplier: str, total: float) -> None:
     st.markdown(
         f"""
         <div style="
-            background:rgba(83,74,183,0.10);
-            border:1px solid rgba(83,74,183,0.28);
+            background:rgba(0,229,160,0.10);
+            border:1px solid rgba(0,229,160,0.28);
             border-radius:10px;
             padding:10px 16px;
             display:flex; gap:24px; flex-wrap:wrap;
@@ -577,8 +577,8 @@ def _render_cnpj_input(supplier: str) -> tuple[bool, str]:
         <div style="
             margin:16px 0 10px;
             padding:12px 16px 4px;
-            background:rgba(83,74,183,0.06);
-            border:1px solid rgba(83,74,183,0.20);
+            background:rgba(0,229,160,0.06);
+            border:1px solid rgba(0,229,160,0.20);
             border-left:3px solid {COLORS['primary']};
             border-radius:8px;
         ">
@@ -626,10 +626,10 @@ def _render_cnpj_input(supplier: str) -> tuple[bool, str]:
             st.markdown(
                 f"""
                 <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;
-                    background:rgba(29,158,117,0.10);border:1px solid rgba(29,158,117,0.30);
+                    background:rgba(0,229,160,0.10);border:1px solid rgba(0,229,160,0.30);
                     border-radius:7px;margin-top:2px;">
                     <span style="font-size:15px">✅</span>
-                    <span style="font-size:12px;color:#1D9E75;font-weight:600">
+                    <span style="font-size:12px;color:#00805C;font-weight:600">
                         CNPJ válido: {cnpj_formatted}
                     </span>
                 </div>
@@ -730,18 +730,18 @@ def _render_charge_button(
         st.markdown(
             f"""
             <div style="
-                background:rgba(29,158,117,0.12);
-                border:1px solid rgba(29,158,117,0.35);
+                background:rgba(0,229,160,0.12);
+                border:1px solid rgba(0,229,160,0.35);
                 border-radius:10px; padding:14px 18px;
             ">
-                <span style="font-size:14px;font-weight:600;color:#1D9E75">
+                <span style="font-size:14px;font-weight:600;color:#00805C">
                     ✅ Cobrança lançada com sucesso
                 </span>
                 <p style="font-size:12px;color:{COLORS['text_muted']};margin:4px 0 0">
                     Fornecedor: <strong>{supplier}</strong> —
                     Emitida em: {launched_at} —
                     Registros removidos da planilha ativa e salvos em
-                    <code style="color:#534AB7">dataset/bd_cobranca.xlsx</code>
+                    <code style="color:#0D1B17">dataset/bd_cobranca.xlsx</code>
                 </p>
             </div>
             """,
@@ -753,7 +753,7 @@ def _render_charge_button(
         with col_excel:
             if charge_doc_key in st.session_state:
                 st.download_button(
-                    label="⬇️ Baixar Documento de Cobrança (Excel)",
+                    label="Baixar Documento de Cobranca (Excel)",
                     data=st.session_state[charge_doc_key],
                     file_name=f"cobranca_{supplier.replace(' ', '_')}_{date.today().isoformat()}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -780,19 +780,19 @@ def _render_charge_button(
     width: 100%; height: 38px; border-radius: 8px; cursor: pointer;
     font-size: 12.5px; font-weight: 500;
     transition: all .15s ease;
-    background: rgba(83,74,183,0.15);
-    color: #B8B0FF;
-    border: 1px solid rgba(83,74,183,0.35);
+    background: rgba(0,229,160,0.15);
+    color:#00805C;
+    border: 1px solid rgba(0,229,160,0.35);
   }}
   .btn:hover {{
-    background: rgba(83,74,183,0.28);
-    border-color: rgba(83,74,183,0.6);
+    background: rgba(0,229,160,0.28);
+    border-color: rgba(0,229,160,0.6);
   }}
   .btn:active {{ transform: scale(0.98); }}
 </style>
 </head>
 <body>
-<button class="btn" onclick="openPreview()">📄 Prévia / Imprimir PDF</button>
+<button class="btn" onclick="openPreview()">Previa / Imprimir PDF</button>
 <script>
   const _HTML_B64 = "{html_b64}";
   function openPreview() {{
@@ -862,7 +862,7 @@ def _render_charge_button(
 
     with col_preview:
         if st.button(
-            "🔍 Pré-visualizar Cobrança",
+            "Pre-visualizar Cobranca",
             use_container_width=True,
             key=f"preview_{supplier}",
         ):
@@ -911,19 +911,19 @@ def _render_charge_button(
     width: 100%; height: 38px; border-radius: 8px; cursor: pointer;
     font-size: 12px; font-weight: 500;
     transition: all .15s ease;
-    background: rgba(83,74,183,0.15);
-    color: #B8B0FF;
-    border: 1px solid rgba(83,74,183,0.35);
+    background: rgba(0,229,160,0.15);
+    color:#00805C;
+    border: 1px solid rgba(0,229,160,0.35);
   }}
   .btn:hover {{
-    background: rgba(83,74,183,0.28);
-    border-color: rgba(83,74,183,0.6);
+    background: rgba(0,229,160,0.28);
+    border-color: rgba(0,229,160,0.6);
   }}
   .btn:active {{ transform: scale(0.98); }}
 </style>
 </head>
 <body>
-<button class="btn" onclick="openPreview()">📄 Prévia / Imprimir PDF</button>
+<button class="btn" onclick="openPreview()">Previa / Imprimir PDF</button>
 <script>
   const _HTML_B64 = "{html_b64}";
   function openPreview() {{
@@ -958,7 +958,7 @@ def _render_charge_button(
                 Fornecedor: <strong style="color:{COLORS['text_primary']}">{supplier}</strong> ·
                 CNPJ: <strong style="color:{COLORS['teal']}">{cnpj}</strong> ·
                 <strong style="color:#E74C3C">R$ {total:,.2f}</strong>
-                <span style="display:block;font-size:9.5px;color:#4A4A80;margin-top:2px">
+                <span style="display:block;font-size:9.5px;color:#4A5752;margin-top:2px">
                     Use Pré-visualizar ou Prévia / Imprimir para revisar.
                 </span>
             </div>
