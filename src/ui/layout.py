@@ -289,7 +289,7 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
         TH = (
             "padding:11px 14px;text-align:center;color:#0D1B17;font-weight:600;"
             "font-size:10px;text-transform:uppercase;letter-spacing:0.9px;"
-            "background:#FFFFFF;border-bottom:1px solid rgba(0,229,160,0.35);"
+            "background:#00805C;border-bottom:1px solid rgba(0,229,160,0.35);"
             "white-space:nowrap;position:sticky;top:0;z-index:1;"
         )
         TH_L = TH + "text-align:left;"
