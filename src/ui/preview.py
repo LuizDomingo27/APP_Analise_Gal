@@ -3,9 +3,10 @@ Preview page generator — tema clean light.
 Fundo branco, acentos #00B884 / #00805C, warmth #F2F7F5.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 import pandas as pd
 from src.config.settings import COLS
+from src.data.cobranca_history import payment_punctuality
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -350,6 +351,21 @@ def _generate_html(fdf: pd.DataFrame, tdf: pd.DataFrame) -> str:
 </html>"""
 
 
+def _dias_para_vencer_info(dias_para_vencer: int) -> tuple[str, str]:
+    """
+    Retorna (texto, cor) para o indicador de Dias para Vencer no documento
+    impresso/PDF:
+      - negativo -> vencido (vermelho)
+      - zero     -> vence hoje (âmbar)
+      - positivo -> dias restantes (verde)
+    """
+    if dias_para_vencer < 0:
+        return f"Vencido há {abs(dias_para_vencer)} dia(s)", "#D85A30"
+    if dias_para_vencer == 0:
+        return "Vence hoje", "#EF9F27"
+    return f"{dias_para_vencer} dia(s)", "#00805C"
+
+
 # ── HTML generator for Supplier Billing Report ─────────────────────────────────
 
 def _generate_cobranca_html(
@@ -357,13 +373,20 @@ def _generate_cobranca_html(
     cnpj: str,
     total: float,
     df_sel: pd.DataFrame,
-    df_full: pd.DataFrame
+    df_full: pd.DataFrame,
+    data_cobranca: date,
+    data_vencimento: date,
+    dias_para_vencer: int,
 ) -> str:
     n_records = len(df_sel)
     n_orders = df_sel[COLS["order"]].nunique() if COLS["order"] in df_sel.columns else 0
     ts = datetime.now().strftime("%d/%m/%Y %H:%M")
-    
+
     thr = _get_thresholds(df_full)
+
+    data_cobranca_str  = data_cobranca.strftime("%d/%m/%Y")
+    data_vencimento_str = data_vencimento.strftime("%d/%m/%Y")
+    dias_texto, dias_cor = _dias_para_vencer_info(dias_para_vencer)
     
     rows = ""
     for _, row in df_sel.iterrows():
@@ -442,6 +465,35 @@ def _generate_cobranca_html(
   </div>
 </div>
 
+<!-- Prazo de Pagamento -->
+<div class="sec">Prazo de Pagamento</div>
+<div class="cards-3">
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">🗓️</span>
+    </div>
+    <div class="clabel">Data da Cobrança</div>
+    <div class="cv">{data_cobranca_str}</div>
+    <div class="cdetail">data de emissão do aviso</div>
+  </div>
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">📌</span>
+    </div>
+    <div class="clabel">Data de Vencimento</div>
+    <div class="cv">{data_vencimento_str}</div>
+    <div class="cdetail">cobrança + 20 dias</div>
+  </div>
+  <div class="card">
+    <div class="card-top">
+      <span class="cico">⏳</span>
+    </div>
+    <div class="clabel">Dias para Vencer</div>
+    <div class="cv"><span style="color:{dias_cor}">{dias_texto}</span></div>
+    <div class="cdetail">a partir de hoje</div>
+  </div>
+</div>
+
 <!-- Table -->
 <div class="sec">Detalhamento dos Defeitos</div>
 <div class="tw">
@@ -476,6 +528,8 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
     rows = ""
     for _, row in df_filtered.iterrows():
         val_cobranca = row.get("Data Cobrança", "")
+        val_vencimento = row.get("Data Vencimento", "")
+        val_pagamento = row.get("Data Pagamento", "")
         supplier = row.get("Fornecedor", "")
         cnpj = row.get("CNPJ", "")
         status = row.get("Status", "Pendente")
@@ -489,10 +543,38 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
         
         if isinstance(val_cobranca, pd.Timestamp):
             val_cobranca = val_cobranca.strftime("%d/%m/%Y")
+        if isinstance(val_vencimento, pd.Timestamp):
+            val_vencimento = val_vencimento.strftime("%d/%m/%Y")
+        if isinstance(val_pagamento, pd.Timestamp):
+            val_pagamento = val_pagamento.strftime("%d/%m/%Y")
         if isinstance(val_prod, pd.Timestamp):
             val_prod = val_prod.strftime("%d/%m/%Y")
-            
+        if pd.isna(val_pagamento):
+            val_pagamento = ""
+
         st_lower = str(status).strip()
+
+        # Dias para Vencer / Situação de Pagamento:
+        #   - Pendente/Contestado -> contagem regressiva (calculada em tempo
+        #     real, não é salva no xlsx pois muda todos os dias).
+        #   - Pago -> compara a Data de Pagamento (manual) com a Data de
+        #     Vencimento e mostra se foi pago no prazo ou com atraso.
+        dias_html = ""
+        if st_lower == "Pago":
+            dias_atraso, atrasado = payment_punctuality(val_pagamento, val_vencimento)
+            if atrasado is None:
+                dias_html = '<span style="color:#D8932E;font-weight:600">Informe a data do pagamento</span>'
+            elif atrasado:
+                dias_html = f'<span style="color:#D85A30;font-weight:600">⚠️ Pago com {dias_atraso}d de atraso</span>'
+            else:
+                dias_html = '<span style="color:#1D9E75;font-weight:600">✅ Pago no prazo</span>'
+        else:
+            venc_dt = pd.to_datetime(val_vencimento, format="%d/%m/%Y", errors="coerce")
+            if pd.notna(venc_dt):
+                dias_val = (venc_dt.date() - date.today()).days
+                _dias_texto, _dias_cor = _dias_para_vencer_info(dias_val)
+                dias_html = f'<span style="color:{_dias_cor};font-weight:600">{_dias_texto}</span>'
+
         if st_lower == "Pago":
             status_badge = '<span class="badge-status status-pago">✅ Pago</span>'
         elif st_lower == "Contestado":
@@ -517,6 +599,9 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
         rows += (
             "<tr>"
             f"<td>{val_cobranca}</td>"
+            f"<td>{val_vencimento}</td>"
+            f"<td>{val_pagamento}</td>"
+            f"<td>{dias_html}</td>"
             f"<td class='tdl'>{supplier}</td>"
             f"<td>{cnpj}</td>"
             f"<td>{status_badge}</td>"
@@ -605,7 +690,8 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
 <table>
   <thead>
     <tr>
-      <th>Data Cobrança</th><th style="text-align:left">Fornecedor</th><th>CNPJ</th>
+      <th>Data Cobrança</th><th>Vencimento</th><th>Pagamento</th><th>Situação</th>
+      <th style="text-align:left">Fornecedor</th><th>CNPJ</th>
       <th>Status</th><th>OM</th><th>Data Produção</th><th>Qtd</th>
       <th style="text-align:left">Remonte / Defeito</th><th>Real Cortado</th>
       <th>Min. Gerados</th><th>Valor (R$)</th>

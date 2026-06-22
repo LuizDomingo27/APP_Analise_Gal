@@ -37,6 +37,7 @@ from src.data.cobranca_history import (
     STATUS_OPTIONS,
     load_history,
     update_status,
+    payment_punctuality,
 )
 import base64
 import streamlit.components.v1 as components
@@ -93,6 +94,8 @@ st.markdown(
 # ── Ordem das colunas na tabela ───────────────────────────────────────────────
 _ORDERED_COLS = [
     "DATA_COBRANCA",
+    "DATA_VENCIMENTO",
+    "DATA_PAGAMENTO",
     COLS["supplier"],
     "CNPJ_FORNECEDOR",
     COLS["status"],          # <-- novo campo STATUS
@@ -224,11 +227,29 @@ def main() -> None:
     ord_label    = HISTORY_LABELS.get(COLS["order"],     "OM")
     sup_label    = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
     dte_label    = HISTORY_LABELS.get("DATA_COBRANCA",   "Data Cobrança")
+    venc_label   = HISTORY_LABELS.get("DATA_VENCIMENTO", "Data Vencimento")
+    pag_label    = HISTORY_LABELS.get("DATA_PAGAMENTO",  "Data Pagamento")
     cnpj_label   = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
+    dias_label   = "Dias para Vencer"
 
     for col in (val_label, min_label, qty_label):
         if col in df_view.columns:
             df_view[col] = pd.to_numeric(df_view[col], errors="coerce")
+
+    # ── Dias para Vencer: calculado em tempo real (hoje → Data de Vencimento) ─
+    # Não é salvo no xlsx (mudaria todos os dias) — apenas a Data de Vencimento
+    # é persistida; aqui ela é comparada com a data de hoje a cada acesso.
+    if venc_label in df_view.columns:
+        _venc_parsed = pd.to_datetime(df_view[venc_label], format="%d/%m/%Y", errors="coerce")
+        _today = date.today()
+
+        def _calc_dias(d):
+            if pd.isna(d):
+                return pd.NA
+            return (d.date() - _today).days
+
+        venc_idx = df_view.columns.get_loc(venc_label)
+        df_view.insert(venc_idx + 1, dias_label, _venc_parsed.apply(_calc_dias))
 
     # ── Filtros (sidebar) ─────────────────────────────────────────────────────
     st.sidebar.markdown(
@@ -402,12 +423,55 @@ def main() -> None:
     if "Real Cortado" in display_df.columns:
         display_df["Real Cortado"] = display_df["Real Cortado"].apply(lambda v: f"{int(v):,}" if pd.notna(v) else "")
 
+    _status_raw = (
+        display_df[status_label].astype(str).str.strip()
+        if status_label in display_df.columns
+        else pd.Series([""] * len(display_df), index=display_df.index)
+    )
+
     if status_label in display_df.columns:
         display_df[status_label] = display_df[status_label].apply(lambda s: 
             '<span class="badge-status status-pago">✅ Pago</span>' if str(s).strip() == "Pago"
             else ('<span class="badge-status status-contestado">⚠️ Contestado</span>' if str(s).strip() == "Contestado"
             else '<span class="badge-status status-pendente">⏳ Pendente</span>')
         )
+
+    # ── Dias para Vencer / Situação de Pagamento: badge colorido ─────────────
+    # Pendente/Contestado -> contagem regressiva até o vencimento.
+    # Pago -> compara a Data de Pagamento (manual) com a Data de Vencimento
+    #         e mostra se foi pago no prazo ou com atraso.
+    if dias_label in display_df.columns:
+        _venc_raw = (
+            display_df[venc_label] if venc_label in display_df.columns
+            else pd.Series([""] * len(display_df), index=display_df.index)
+        )
+        _pag_raw = (
+            display_df[pag_label] if pag_label in display_df.columns
+            else pd.Series([""] * len(display_df), index=display_df.index)
+        )
+
+        def _badge_dias(dias_val, status_val, venc_val, pag_val):
+            if status_val == "Pago":
+                dias_atraso, atrasado = payment_punctuality(pag_val, venc_val)
+                if atrasado is None:
+                    return '<span class="badge-status status-pendente">❔ Informe a data do pagamento</span>'
+                if atrasado:
+                    return f'<span class="badge-status status-contestado">⚠️ Pago com {dias_atraso}d de atraso</span>'
+                return '<span class="badge-status status-pago">✅ Pago no prazo</span>'
+
+            if pd.isna(dias_val):
+                return ""
+            d = int(dias_val)
+            if d < 0:
+                return f'<span class="badge-status status-contestado">⚠️ Vencido há {abs(d)}d</span>'
+            if d == 0:
+                return '<span class="badge-status status-pendente">⏳ Vence hoje</span>'
+            return f'<span style="color:#00805C;font-weight:600">{d} dia(s)</span>'
+
+        display_df[dias_label] = [
+            _badge_dias(d, s, v, p)
+            for d, s, v, p in zip(display_df[dias_label], _status_raw, _venc_raw, _pag_raw)
+        ]
 
     # Remover _orig_idx da exibição
     orig_idx_col = "_orig_idx"
@@ -480,11 +544,17 @@ def main() -> None:
     # ── Painel de Controle de Status ──────────────────────────────────────────
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     with st.expander("📝 Atualizar Status de Lançamento", expanded=True):
-        col_rec, col_st, col_act = st.columns([2, 1, 1])
+        col_rec, col_st, col_pag, col_act = st.columns([2, 1, 1, 1])
         charge_opts = []
         for idx, row in df_filtered.iterrows():
             opt_label = f"{row[sup_label]} | OM: {int(row[ord_label])} | R$ {float(row[val_label]):,.2f} ({row[dte_label]})"
-            charge_opts.append((opt_label, row[orig_idx_col], row[status_label]))
+            charge_opts.append((
+                opt_label,
+                row[orig_idx_col],
+                row[status_label],
+                row.get(venc_label, ""),
+                row.get(pag_label, ""),
+            ))
         
         if charge_opts:
             selected_opt = col_rec.selectbox(
@@ -495,6 +565,8 @@ def main() -> None:
             )
             
             curr_st = selected_opt[2]
+            curr_venc = selected_opt[3]
+            curr_pag = selected_opt[4]
             status_idx = STATUS_OPTIONS.index(curr_st) if curr_st in STATUS_OPTIONS else 0
             
             new_st = col_st.selectbox(
@@ -504,8 +576,30 @@ def main() -> None:
                 key="new_status_select"
             )
             
+            # ── Data do Pagamento: só faz sentido quando o status é "Pago".
+            # É sempre informada manualmente pelo usuário (não é automática) ──
+            data_pagamento_input = None
+            with col_pag:
+                if new_st == "Pago":
+                    _default_pag = pd.to_datetime(curr_pag, format="%d/%m/%Y", errors="coerce")
+                    _default_pag = _default_pag.date() if pd.notna(_default_pag) else date.today()
+                    data_pagamento_input = st.date_input(
+                        "Data do Pagamento",
+                        value=_default_pag,
+                        format="DD/MM/YYYY",
+                        key="data_pagamento_input",
+                        help="Data em que o pagamento foi efetivamente realizado. "
+                             "Usada para indicar se foi pago no prazo ou com atraso.",
+                    )
+                else:
+                    st.markdown(
+                        f"<div style='margin-top:1.8rem;font-size:11px;color:{COLORS.get('text_subtle', '#7C8985')}'>"
+                        "Disponível ao marcar como Pago</div>",
+                        unsafe_allow_html=True,
+                    )
+            
             if col_act.button("💾 Salvar Alteração", use_container_width=True, key="btn_update_status_db"):
-                ok = update_status(selected_opt[1], new_st)
+                ok = update_status(selected_opt[1], new_st, data_pagamento=data_pagamento_input)
                 if ok:
                     st.success(f"Status atualizado para {new_st} com sucesso!")
                     st.rerun()

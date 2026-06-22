@@ -11,7 +11,7 @@ BD_PRINCIPAL = DATASET_DIR / "bd_principal.xlsx"
 
 PAGE_CONFIG = {
     "page_title": "Análise Remontes",
-    "page_icon": "🔍",
+    "page_icon": "⌚",
     "layout": "wide",
     "initial_sidebar_state": "expanded",
 }

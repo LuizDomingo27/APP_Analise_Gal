@@ -9,7 +9,7 @@ CHANGELOG v13:
 - Histórico movido para src/data/cobranca_history.py.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -127,12 +127,16 @@ def _show_preview_dialog(
     df_display: pd.DataFrame,
     n_records: int,
     n_orders: int,
+    data_cobranca: date,
+    data_vencimento: date,
+    dias_para_vencer: int,
 ) -> None:
     """
     Modal de pré-visualização — cores idênticas à tela Análise de Defeitos.
     Gradiente escuro 1E1019→130C13, acento vermelho #E24B4A, borda roxo #00B884.
     """
     today_br = date.today().strftime("%d/%m/%Y")
+    dias_texto, dias_accent = _dias_para_vencer_label(dias_para_vencer)
 
     # ── CSS injetado dentro do dialog ────────────────────────────────────────
     st.markdown(
@@ -206,6 +210,12 @@ def _show_preview_dialog(
     _mini_kpi(c2, "✦ REGISTROS",       str(n_records),      "#00B884")
     _mini_kpi(c3, "✦ ORDENS (OM)",     str(n_orders),       "#00E5A0")
 
+    # ── KPI cards — prazo da cobrança (data/vencimento/dias a vencer) ────────
+    c4, c5, c6 = st.columns(3)
+    _mini_kpi(c4, "✦ DATA DA COBRANÇA",   data_cobranca.strftime("%d/%m/%Y"),   "#0EA5C7")
+    _mini_kpi(c5, "✦ VENCIMENTO (+20D)",  data_vencimento.strftime("%d/%m/%Y"), "#7C8985")
+    _mini_kpi(c6, "✦ DIAS PARA VENCER",   dias_texto,                           dias_accent)
+
     # ── Label da tabela ───────────────────────────────────────────────────────
     st.markdown(
         """
@@ -272,6 +282,93 @@ def _show_preview_dialog(
         ):
             st.session_state["_preview_confirmed"] = True
             st.rerun()
+
+
+def _dias_para_vencer_label(dias_para_vencer: int) -> tuple[str, str]:
+    """
+    Retorna (texto, cor) para o indicador de Dias para Vencer:
+      - negativo -> vencido (vermelho)
+      - zero     -> vence hoje (âmbar)
+      - positivo -> dias restantes (verde)
+    """
+    if dias_para_vencer < 0:
+        return f"Vencido há {abs(dias_para_vencer)} dia(s)", "#E24B4A"
+    if dias_para_vencer == 0:
+        return "Vence hoje", "#EF9F27"
+    return f"{dias_para_vencer} dia(s)", "#00805C"
+
+
+def _render_charge_dates_input(supplier: str) -> tuple[date, date, int]:
+    """
+    Campos de prazo da cobrança, exibidos na tela principal de Cobrança
+    de Fornecedores (refletidos depois na pré-visualização e no PDF):
+
+      - Data da Cobrança:   escolhida livremente pelo usuário.
+      - Data de Vencimento: calculada automaticamente = Data da Cobrança + 20 dias.
+      - Dias para Vencer:   contagem regressiva entre hoje e a Data de Vencimento.
+    """
+    st.markdown(
+        f"""
+        <p style="font-size:11px;color:{COLORS['text_subtle']};
+                  text-transform:uppercase;letter-spacing:0.7px;margin:16px 0 8px">
+            📅 Prazo da Cobrança
+        </p>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col_cobranca, col_vencimento, col_dias = st.columns(3)
+
+    with col_cobranca:
+        data_cobranca = st.date_input(
+            "Data da Cobrança",
+            value=date.today(),
+            format="DD/MM/YYYY",
+            key=f"data_cobranca_{supplier}",
+            help="Data em que a cobrança está sendo realizada junto ao fornecedor. "
+                 "O vencimento é calculado automaticamente (+20 dias).",
+        )
+
+    data_vencimento  = data_cobranca + timedelta(days=20)
+    dias_para_vencer = (data_vencimento - date.today()).days
+    dias_texto, dias_accent = _dias_para_vencer_label(dias_para_vencer)
+
+    with col_vencimento:
+        st.markdown(
+            f"""
+            <div style="margin-top:1.8rem">
+              <span style="font-size:11px;color:{COLORS['text_subtle']};
+                          text-transform:uppercase;letter-spacing:0.5px">
+                  🔒 Data de Vencimento
+              </span><br>
+              <span style="font-size:15px;font-weight:700;color:{COLORS['text_primary']}">
+                  {data_vencimento.strftime('%d/%m/%Y')}
+              </span>
+              <span style="display:block;font-size:10px;color:{COLORS['text_subtle']};margin-top:1px">
+                  Cobrança + 20 dias (automático)
+              </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with col_dias:
+        st.markdown(
+            f"""
+            <div style="margin-top:1.8rem">
+              <span style="font-size:11px;color:{COLORS['text_subtle']};
+                          text-transform:uppercase;letter-spacing:0.5px">
+                  ⏳ Dias para Vencer
+              </span><br>
+              <span style="font-size:15px;font-weight:700;color:{dias_accent}">
+                  {dias_texto}
+              </span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    return data_cobranca, data_vencimento, dias_para_vencer
 
 
 def _mini_kpi(col, label: str, value: str, accent: str) -> None:
@@ -374,6 +471,9 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
     # ── Input CNPJ ────────────────────────────────────────────────────────────
     cnpj_valid, cnpj_formatted = _render_cnpj_input(selected_supplier)
 
+    # ── Prazo da cobrança (data cobrança / vencimento / dias a vencer) ───────
+    data_cobranca, data_vencimento, dias_para_vencer = _render_charge_dates_input(selected_supplier)
+
     # ── Tabela de registros ───────────────────────────────────────────────────
     st.markdown(
         f'<p style="font-size:12px;color:{COLORS["text_subtle"]}; '
@@ -430,6 +530,9 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
         df_display=df_display,
         cnpj_valid=cnpj_valid,
         df_full=df,
+        data_cobranca=data_cobranca,
+        data_vencimento=data_vencimento,
+        dias_para_vencer=dias_para_vencer,
     )
 
 
@@ -663,6 +766,9 @@ def _render_charge_button(
     df_display: pd.DataFrame,
     cnpj_valid: bool,
     df_full: pd.DataFrame,
+    data_cobranca: date,
+    data_vencimento: date,
+    dias_para_vencer: int,
 ) -> None:
     """
     Gerencia o fluxo:
@@ -701,6 +807,9 @@ def _render_charge_button(
                 total=total,
                 df_sel=df_records,
                 df_full=df_full,
+                data_cobranca=data_cobranca,
+                data_vencimento=data_vencimento,
+                dias_para_vencer=dias_para_vencer,
             )
 
             # 3. Salva no histórico bd_cobranca.xlsx
@@ -710,6 +819,8 @@ def _render_charge_button(
                 total=total,
                 df_records=df_export,
                 display_cols=_DISPLAY_COLS,
+                data_cobranca=data_cobranca,
+                data_vencimento=data_vencimento,
             )
 
             # 4. Remove fornecedor do DataFrame ativo
@@ -873,6 +984,9 @@ def _render_charge_button(
                 df_display=df_display,
                 n_records=n_records,
                 n_orders=n_orders,
+                data_cobranca=data_cobranca,
+                data_vencimento=data_vencimento,
+                dias_para_vencer=dias_para_vencer,
             )
 
     with col_launch:
@@ -893,6 +1007,9 @@ def _render_charge_button(
             total=total,
             df_sel=df_records,
             df_full=df_full,
+            data_cobranca=data_cobranca,
+            data_vencimento=data_vencimento,
+            dias_para_vencer=dias_para_vencer,
         )
         html_b64 = base64.b64encode(html_page.encode("utf-8")).decode()
         components.html(
