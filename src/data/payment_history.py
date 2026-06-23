@@ -1,0 +1,354 @@
+# -*- coding: utf-8 -*-
+"""
+Gerenciamento dos Pagamentos Concluídos — bd_pagamentos.xlsx.
+
+Cada lançamento de cobrança marcado como "Pago" na aba Histórico de
+Cobranças é removido de bd_cobranca.xlsx e passa a viver aqui, identificado
+pelo seu Código do Lançamento (que se torna o "Código do Pagamento").
+"""
+
+import re as _re
+from datetime import date
+
+import pandas as pd
+import streamlit as st
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
+from src.config.settings import COLS, DATASET_DIR
+from src.data.cobranca_history import (
+    HISTORY_LABELS,
+    _COL_WIDTHS,
+    _SAVE_COLS,
+    payment_punctuality,
+)
+
+BD_PAGAMENTOS = DATASET_DIR / "bd_pagamentos.xlsx"
+
+# ── Paleta — mesma identidade visual do histórico de cobranças ──────────────
+_PURPLE_DARK  = "1A1530"
+_PURPLE_MID   = "534AB7"
+_PURPLE_LIGHT = "EDE8FF"
+_WHITE        = "FFFFFF"
+_GRAY_BORDER  = "C8C0F0"
+_TEXT_LIGHT   = "C8C0F0"
+_GREEN        = "1D9E75"
+_RED          = "C0392B"
+_AMBER        = "D8932E"
+
+_HEADER_OFFSET = 5   # linha 1 título, 2 subtítulo, 3 KPIs, 4 espaçador, 5 header
+
+
+def append_payments(df_rows: pd.DataFrame) -> None:
+    """
+    Acrescenta linhas (já com STATUS="Pago") em bd_pagamentos.xlsx.
+    Acumula sem sobrescrever pagamentos anteriores.
+    """
+    DATASET_DIR.mkdir(parents=True, exist_ok=True)
+
+    if BD_PAGAMENTOS.exists():
+        df_existing = _read_payments_xlsx()
+        df_final    = pd.concat([df_existing, df_rows], ignore_index=True)
+    else:
+        df_final = df_rows.copy()
+
+    _write_payments_xlsx(df_final)
+    st.cache_data.clear()
+
+
+@st.cache_data
+def load_payments() -> pd.DataFrame | None:
+    """Carrega o histórico completo de bd_pagamentos.xlsx. Retorna None se não existir."""
+    if not BD_PAGAMENTOS.exists():
+        return None
+    return _read_payments_xlsx()
+
+
+# ── Privado — leitura ─────────────────────────────────────────────────────────
+
+def _read_payments_xlsx() -> pd.DataFrame:
+    """
+    Lê bd_pagamentos.xlsx pulando as linhas decorativas do cabeçalho.
+    """
+    df = pd.read_excel(BD_PAGAMENTOS, engine="openpyxl", header=_HEADER_OFFSET - 1)
+
+    _date_pat = _re.compile(r"^\d{2}/\d{2}/\d{4}$")
+    _date_col_matches = [c for c in df.columns if str(c).strip() in ("Data Cobrança", "Data Cobranca")]
+    filter_col = _date_col_matches[0] if _date_col_matches else df.columns[0]
+    df = df[df[filter_col].astype(str).str.match(_date_pat)]
+    df = df.reset_index(drop=True)
+
+    _label_to_internal = {
+        "Código":                  "COD_LANCAMENTO",
+        "Codigo":                  "COD_LANCAMENTO",
+        "Código do Pagamento":     "COD_LANCAMENTO",
+        "Data Cobranca":           "DATA_COBRANCA",
+        "Data Cobrança":           "DATA_COBRANCA",
+        "Data Vencimento":         "DATA_VENCIMENTO",
+        "Vencimento":              "DATA_VENCIMENTO",
+        "Data Pagamento":          "DATA_PAGAMENTO",
+        "Data de Pagamento":       "DATA_PAGAMENTO",
+        "CNPJ":                    "CNPJ_FORNECEDOR",
+        "Status":                  COLS["status"],
+        "STATUS_COBRANCA":         COLS["status"],
+        "OM":                      _SAVE_COLS[0],
+        "Data Prodção":            _SAVE_COLS[1],
+        "Data Producao":           _SAVE_COLS[1],
+        "Data Produção":           _SAVE_COLS[1],
+        "Fornecedor":              _SAVE_COLS[2],
+        "Qtd":                     _SAVE_COLS[3],
+        "Remonte / Defeito":       _SAVE_COLS[4],
+        "Real Cortado":            _SAVE_COLS[5],
+        "Min. Gerados":            _SAVE_COLS[6],
+        "Valor (R$)":              _SAVE_COLS[7],
+    }
+    df = df.rename(columns=_label_to_internal)
+    df = df.loc[:, ~df.columns.str.contains(r"\.\d+$", regex=True)]
+
+    if COLS["status"] not in df.columns:
+        df[COLS["status"]] = "Pago"
+    if "DATA_PAGAMENTO" not in df.columns:
+        df["DATA_PAGAMENTO"] = ""
+    else:
+        df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].fillna("").astype(str).str.strip()
+        df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].replace({"nan": "", "None": "", "NaT": ""})
+
+    return df
+
+
+# ── Privado — escrita ─────────────────────────────────────────────────────────
+
+def _write_payments_xlsx(df: pd.DataFrame) -> None:
+    """
+    Grava df em BD_PAGAMENTOS com formato executivo: título, subtítulo,
+    faixa de indicadores (KPIs) e tabela detalhada com agrupamento visual
+    por Código do Pagamento.
+    """
+    # Ordena por Data de Pagamento (mais recentes primeiro) — mais útil
+    # para um relatório executivo do que a ordem de inserção.
+    _pag_parsed = pd.to_datetime(df.get("DATA_PAGAMENTO", ""), format="%d/%m/%Y", errors="coerce")
+    df = df.assign(_ord=_pag_parsed).sort_values("_ord", ascending=False, na_position="last").drop(columns="_ord")
+    df = df.reset_index(drop=True)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pagamentos Concluídos"
+
+    all_cols  = list(df.columns)
+    num_cols  = len(all_cols)
+    last_col  = get_column_letter(num_cols)
+    today_br  = date.today().strftime("%d/%m/%Y")
+    n_records = len(df)
+
+    value_col_name  = COLS["value_brl"]
+    status_col_name = COLS["status"]
+    cod_col_name     = "COD_LANCAMENTO"
+
+    total_value     = float(pd.to_numeric(df[value_col_name], errors="coerce").fillna(0).sum()) if value_col_name in df.columns else 0.0
+    n_lancamentos   = df[cod_col_name].nunique() if cod_col_name in df.columns else n_records
+    n_fornecedores  = df[COLS["supplier"]].nunique() if COLS["supplier"] in df.columns else 0
+
+    n_no_prazo  = 0
+    n_atraso    = 0
+    if "DATA_PAGAMENTO" in df.columns and "DATA_VENCIMENTO" in df.columns:
+        _seen_cods = set()
+        for _, r in df.iterrows():
+            c = r.get(cod_col_name)
+            if c in _seen_cods:
+                continue
+            _seen_cods.add(c)
+            _, atrasado = payment_punctuality(r.get("DATA_PAGAMENTO"), r.get("DATA_VENCIMENTO"))
+            if atrasado is True:
+                n_atraso += 1
+            elif atrasado is False:
+                n_no_prazo += 1
+
+    def thin(color=_GRAY_BORDER):
+        s = Side(style="thin", color=color)
+        return Border(left=s, right=s, top=s, bottom=s)
+
+    def header_border():
+        thick = Side(style="medium", color=_PURPLE_MID)
+        thin_ = Side(style="thin",   color=_PURPLE_MID)
+        return Border(left=thin_, right=thin_, top=thick, bottom=thick)
+
+    # ── Linha 1: título principal ─────────────────────────────────────────────
+    ws.merge_cells(f"A1:{last_col}1")
+    c = ws["A1"]
+    c.value     = "PAGAMENTOS CONCLUÍDOS — RELATÓRIO EXECUTIVO"
+    c.font      = Font(name="Calibri", bold=True, size=15, color=_WHITE)
+    c.fill      = PatternFill("solid", fgColor=_PURPLE_DARK)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 34
+
+    # ── Linha 2: subtítulo ────────────────────────────────────────────────────
+    ws.merge_cells(f"A2:{last_col}2")
+    c = ws["A2"]
+    c.value     = f"Gerado em: {today_br}  ·  Lançamentos pagos: {n_lancamentos}  ·  Itens: {n_records}"
+    c.font      = Font(name="Calibri", size=10, color=_TEXT_LIGHT)
+    c.fill      = PatternFill("solid", fgColor=_PURPLE_DARK)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[2].height = 18
+
+    # ── Linha 3: faixa de indicadores (KPIs) ─────────────────────────────────
+    kpis = [
+        ("VALOR TOTAL PAGO", f"R$ {total_value:,.2f}", _GREEN),
+        ("LANÇAMENTOS PAGOS", str(n_lancamentos), _PURPLE_MID),
+        ("FORNECEDORES", str(n_fornecedores), _PURPLE_MID),
+        ("NO PRAZO", str(n_no_prazo), _GREEN),
+        ("COM ATRASO", str(n_atraso), _RED),
+    ]
+    n_kpi = len(kpis)
+    base_width = num_cols // n_kpi
+    extra      = num_cols % n_kpi
+    col_cursor = 1
+    for i, (label, value, color) in enumerate(kpis):
+        span = base_width + (1 if i < extra else 0)
+        span = max(span, 1)
+        start_col = col_cursor
+        end_col   = min(col_cursor + span - 1, num_cols)
+        col_cursor = end_col + 1
+
+        start_letter = get_column_letter(start_col)
+        end_letter   = get_column_letter(max(end_col, start_col))
+        ws.merge_cells(f"{start_letter}3:{end_letter}3")
+        cell = ws[f"{start_letter}3"]
+        cell.value     = f"{label}:  {value}"
+        cell.font      = Font(name="Calibri", bold=True, size=10, color=color)
+        cell.fill      = PatternFill("solid", fgColor=_PURPLE_LIGHT)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[3].height = 22
+
+    # ── Linha 4: espaçador ────────────────────────────────────────────────────
+    ws.row_dimensions[4].height = 6
+
+    # ── Linha 5: cabeçalho das colunas ───────────────────────────────────────
+    header_row = _HEADER_OFFSET
+    col_labels = dict(HISTORY_LABELS)
+    col_labels["COD_LANCAMENTO"] = "Código do Pagamento"
+
+    for idx, col in enumerate(all_cols, start=1):
+        cell = ws.cell(row=header_row, column=idx)
+        cell.value     = col_labels.get(col, col)
+        cell.font      = Font(name="Calibri", bold=True, size=10, color=_WHITE)
+        cell.fill      = PatternFill("solid", fgColor=_PURPLE_MID)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border    = header_border()
+    ws.row_dimensions[header_row].height = 26
+
+    # ── Linhas de dados — faixa alternada por GRUPO (Código), não por linha ──
+    last_cod    = None
+    band_toggle = False
+
+    for row_idx, (_, row) in enumerate(df.iterrows(), start=header_row + 1):
+        cur_cod = row.get(cod_col_name)
+        if cur_cod != last_cod:
+            band_toggle = not band_toggle
+            last_cod = cur_cod
+        fill_color = _PURPLE_LIGHT if band_toggle else _WHITE
+
+        for col_idx, col in enumerate(all_cols, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.border = thin()
+
+            val = row.get(col)
+            if pd.isna(val):
+                val = ""
+
+            if col == status_col_name:
+                cell.value     = "Pago"
+                cell.fill      = PatternFill("solid", fgColor=_GREEN)
+                cell.font      = Font(name="Calibri", size=9, bold=True, color=_WHITE)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                continue
+
+            if col == value_col_name:
+                fval = float(val) if val != "" else 0.0
+                cell.value         = fval
+                cell.number_format = 'R$ #,##0.00'
+                cell.fill          = PatternFill("solid", fgColor=fill_color)
+                cell.alignment     = Alignment(horizontal="right")
+                cell.font          = Font(name="Calibri", size=9, color="1A1530")
+                continue
+
+            cell.fill = PatternFill("solid", fgColor=fill_color)
+            cell.font = Font(name="Calibri", size=9)
+
+            if col == cod_col_name:
+                cell.font      = Font(name="Consolas", size=9, bold=True, color=_PURPLE_MID)
+                cell.alignment = Alignment(horizontal="center")
+            elif col == "DATA_PAGAMENTO":
+                cell.alignment = Alignment(horizontal="center")
+                _dias_atraso, _atrasado = payment_punctuality(val, row.get("DATA_VENCIMENTO"))
+                if _atrasado:
+                    cell.font = Font(name="Calibri", size=9, bold=True, color=_RED)
+                elif _atrasado is False:
+                    cell.font = Font(name="Calibri", size=9, bold=True, color=_GREEN)
+                else:
+                    cell.font = Font(name="Calibri", size=9, italic=True, color=_AMBER)
+            elif col in ("DATA_COBRANCA", "DATA_VENCIMENTO", COLS["date"]):
+                cell.alignment = Alignment(horizontal="center")
+            elif col == "CNPJ_FORNECEDOR":
+                cell.font      = Font(name="Calibri", size=9, color=_GREEN, bold=True)
+                cell.alignment = Alignment(horizontal="center")
+            elif col in (COLS["quantity"], COLS["real_cut"], COLS["minutes"]):
+                cell.alignment = Alignment(horizontal="center")
+            elif col == COLS["order"]:
+                cell.font      = Font(name="Calibri", size=9, bold=True)
+                cell.alignment = Alignment(horizontal="center")
+            else:
+                cell.alignment = Alignment(horizontal="left")
+
+            cell.value = val
+
+        ws.row_dimensions[row_idx].height = 17
+
+    # ── Linha de total ────────────────────────────────────────────────────────
+    total_row   = header_row + n_records + 1
+    val_col_idx = (all_cols.index(value_col_name) + 1
+                   if value_col_name in all_cols else num_cols)
+    merge_end   = get_column_letter(max(val_col_idx - 1, 1))
+
+    ws.merge_cells(f"A{total_row}:{merge_end}{total_row}")
+    lc = ws[f"A{total_row}"]
+    lc.value     = "TOTAL PAGO"
+    lc.font      = Font(name="Calibri", bold=True, size=10, color=_WHITE)
+    lc.fill      = PatternFill("solid", fgColor=_GREEN)
+    lc.alignment = Alignment(horizontal="right", vertical="center")
+    lc.border    = thin(_GREEN)
+
+    tc = ws.cell(row=total_row, column=val_col_idx)
+    tc.value         = total_value
+    tc.number_format = 'R$ #,##0.00'
+    tc.font          = Font(name="Calibri", bold=True, size=11, color=_WHITE)
+    tc.fill          = PatternFill("solid", fgColor=_GREEN)
+    tc.alignment     = Alignment(horizontal="right", vertical="center")
+    tc.border        = thin(_GREEN)
+    ws.row_dimensions[total_row].height = 22
+
+    for col_idx in range(val_col_idx + 1, num_cols + 1):
+        c = ws.cell(row=total_row, column=col_idx)
+        c.fill   = PatternFill("solid", fgColor=_GREEN)
+        c.border = thin(_GREEN)
+
+    # ── Rodapé ────────────────────────────────────────────────────────────────
+    footer_row = total_row + 2
+    ws.merge_cells(f"A{footer_row}:{last_col}{footer_row}")
+    c = ws[f"A{footer_row}"]
+    c.value = (
+        "Documento gerado automaticamente pelo sistema de Controle de Qualidade. "
+        "Cada Código do Pagamento identifica um lançamento de cobrança pago integralmente."
+    )
+    c.font      = Font(name="Calibri", italic=True, size=8, color="888888")
+    c.alignment = Alignment(horizontal="center", wrap_text=True)
+    ws.row_dimensions[footer_row].height = 28
+
+    # ── Larguras de coluna ────────────────────────────────────────────────────
+    for idx, col in enumerate(all_cols, start=1):
+        ws.column_dimensions[get_column_letter(idx)].width = _COL_WIDTHS.get(col, 16)
+
+    # ── Freeze pane abaixo do cabeçalho de colunas ───────────────────────────
+    ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
+
+    wb.save(BD_PAGAMENTOS)

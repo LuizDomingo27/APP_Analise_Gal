@@ -36,13 +36,19 @@ from src.data.cobranca_history import (
     HISTORY_LABELS,
     STATUS_OPTIONS,
     load_history,
-    update_status,
+    update_lancamento_status,
+    migrate_paid_to_payments,
     payment_punctuality,
 )
 import base64
 import streamlit.components.v1 as components
 from src.ui.preview import _generate_historico_html
 # Force reload comment
+
+# ── Migra cobranças já pagas (lançadas antes da página Pagamentos
+# Concluídos existir) para bd_pagamentos.xlsx, antes de qualquer outra
+# coisa nesta página. Idempotente — não faz nada se já estiver tudo migrado.
+migrate_paid_to_payments()
 
 # ── CSS global ────────────────────────────────────────────────────────────────
 st.markdown(
@@ -93,6 +99,7 @@ st.markdown(
 
 # ── Ordem das colunas na tabela ───────────────────────────────────────────────
 _ORDERED_COLS = [
+    "COD_LANCAMENTO",
     "DATA_COBRANCA",
     "DATA_VENCIMENTO",
     "DATA_PAGAMENTO",
@@ -176,8 +183,9 @@ def main() -> None:
                 </span>
             </div>
             <p style="color:{COLORS['text_muted']};font-size:13px;margin:5px 0 0">
-                Registro acumulado de todas as cobranças confirmadas.
-                Edite o status diretamente na tabela e clique em <strong>Salvar alterações</strong>.
+                Registro acumulado de todas as cobranças confirmadas, exceto as já pagas
+                — essas ficam na aba <strong>Pagamentos Concluídos</strong>.
+                Edite o status diretamente no painel abaixo.
             </p>
         </div>
         """,
@@ -230,6 +238,7 @@ def main() -> None:
     venc_label   = HISTORY_LABELS.get("DATA_VENCIMENTO", "Data Vencimento")
     pag_label    = HISTORY_LABELS.get("DATA_PAGAMENTO",  "Data Pagamento")
     cnpj_label   = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
+    cod_label    = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
     dias_label   = "Dias para Vencer"
 
     for col in (val_label, min_label, qty_label):
@@ -544,28 +553,41 @@ def main() -> None:
     # ── Painel de Controle de Status ──────────────────────────────────────────
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     with st.expander("📝 Atualizar Status de Lançamento", expanded=True):
+        st.caption(
+            "Uma cobrança pode ter vários itens (um por defeito/OM) — todos compartilham "
+            "o mesmo Código. A alteração abaixo sempre vale para o lançamento inteiro. "
+            "Ao marcar como **Pago**, a cobrança sai deste histórico e passa para a aba "
+            "**Pagamentos Concluídos**."
+        )
         col_rec, col_st, col_pag, col_act = st.columns([2, 1, 1, 1])
+
         charge_opts = []
-        for idx, row in df_filtered.iterrows():
-            opt_label = f"{row[sup_label]} | OM: {int(row[ord_label])} | R$ {float(row[val_label]):,.2f} ({row[dte_label]})"
-            charge_opts.append((
-                opt_label,
-                row[orig_idx_col],
-                row[status_label],
-                row.get(venc_label, ""),
-                row.get(pag_label, ""),
-            ))
-        
+        if cod_label in df_filtered.columns:
+            for cod, grupo in df_filtered.groupby(cod_label, sort=False):
+                primeira    = grupo.iloc[0]
+                valor_total = pd.to_numeric(grupo[val_label], errors="coerce").sum()
+                qtd_itens   = len(grupo)
+                opt_label = (
+                    f"{primeira[sup_label]} | Código: {cod} | "
+                    f"R$ {float(valor_total):,.2f} | {qtd_itens} item(ns) | {primeira[dte_label]}"
+                )
+                charge_opts.append((
+                    opt_label,
+                    cod,
+                    primeira[status_label],
+                    primeira.get(venc_label, ""),
+                    primeira.get(pag_label, ""),
+                ))
+
         if charge_opts:
             selected_opt = col_rec.selectbox(
-                "Selecionar Registro de Cobrança",
+                "Selecionar Lançamento de Cobrança",
                 options=charge_opts,
                 format_func=lambda x: f"[{x[2]}] {x[0]}",
                 key="select_charge_to_update"
             )
             
             curr_st = selected_opt[2]
-            curr_venc = selected_opt[3]
             curr_pag = selected_opt[4]
             status_idx = STATUS_OPTIONS.index(curr_st) if curr_st in STATUS_OPTIONS else 0
             
@@ -599,9 +621,16 @@ def main() -> None:
                     )
             
             if col_act.button("💾 Salvar Alteração", use_container_width=True, key="btn_update_status_db"):
-                ok = update_status(selected_opt[1], new_st, data_pagamento=data_pagamento_input)
+                cod_sel = selected_opt[1]
+                ok = update_lancamento_status(cod_sel, new_st, data_pagamento=data_pagamento_input)
                 if ok:
-                    st.success(f"Status atualizado para {new_st} com sucesso!")
+                    if new_st == "Pago":
+                        st.success(
+                            f"✅ Cobrança paga com sucesso! Código **{cod_sel}** — "
+                            "consulte os detalhes na aba **Pagamentos Concluídos**."
+                        )
+                    else:
+                        st.success(f"Status atualizado para {new_st} com sucesso!")
                     st.rerun()
                 else:
                     st.error("Erro ao atualizar status.")

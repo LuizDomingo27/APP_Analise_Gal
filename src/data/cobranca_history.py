@@ -5,6 +5,8 @@ Gerenciamento do histórico de cobranças — bd_cobranca.xlsx.
 
 import io
 import re as _re
+import uuid
+import hashlib
 from datetime import date
 from pathlib import Path
 
@@ -68,6 +70,27 @@ def payment_punctuality(data_pagamento, data_vencimento) -> tuple[int | None, bo
     dias = (pag.date() - venc.date()).days
     return dias, dias > 0
 
+
+def gerar_cod_lancamento() -> str:
+    """
+    Gera um código único para um lançamento de cobrança. Esse mesmo código
+    é usado depois como "Código do Pagamento" quando o lançamento é marcado
+    como Pago — assim é possível distinguir várias contas pagas do mesmo
+    fornecedor/CNPJ.
+    """
+    return f"PAG-{uuid.uuid4().hex[:8].upper()}"
+
+
+def _cod_lancamento_fallback(cnpj: str, data_cobranca: str) -> str:
+    """
+    Gera um código determinístico (estável entre leituras) para lançamentos
+    antigos, salvos antes de existir o Código do Lançamento. Usa CNPJ +
+    Data da Cobrança como chave — então o mesmo lançamento antigo sempre
+    recebe o mesmo código "LEG-..." enquanto não for regravado no disco.
+    """
+    chave = f"{cnpj}|{data_cobranca}".encode("utf-8")
+    return "LEG-" + hashlib.md5(chave).hexdigest()[:8].upper()
+
 # Número de linhas decorativas antes do header de colunas
 _HEADER_OFFSET = 4   # linhas 1-2 título, 3 espaçador, 4 header de colunas
 
@@ -93,6 +116,7 @@ HISTORY_LABELS = {
     COLS["real_cut"]:  "Real Cortado",
     COLS["minutes"]:   "Min. Gerados",
     COLS["value_brl"]: "Valor (R$)",
+    "COD_LANCAMENTO":  "Código",
     "DATA_COBRANCA":   "Data Cobrança",
     "DATA_VENCIMENTO": "Data Vencimento",
     "DATA_PAGAMENTO":  "Data Pagamento",
@@ -102,6 +126,7 @@ HISTORY_LABELS = {
 
 # Larguras das colunas no xlsx
 _COL_WIDTHS = {
+    "COD_LANCAMENTO":                   16,
     "DATA_COBRANCA":                    14,
     "DATA_VENCIMENTO":                  14,
     "DATA_PAGAMENTO":                   14,
@@ -126,7 +151,7 @@ def save_charge_to_history(
     display_cols: list[str],
     data_cobranca: date,
     data_vencimento: date,
-) -> None:
+) -> str:
     """
     Persiste os registros da cobrança em dataset/bd_cobranca.xlsx.
     Acumula sem sobrescrever cobranças anteriores.
@@ -139,12 +164,18 @@ def save_charge_to_history(
 
     DATA_PAGAMENTO começa vazia — só é preenchida manualmente pelo usuário,
     na aba Histórico de Cobranças, no momento em que o status é alterado
-    para "Pago" (ver update_status).
+    para "Pago" (ver update_lancamento_status).
+
+    COD_LANCAMENTO é gerado automaticamente aqui — um código único por
+    cobrança lançada (compartilhado por todos os itens dela). Esse mesmo
+    código se torna o "Código do Pagamento" quando a cobrança é paga,
+    permitindo distinguir várias contas pagas do mesmo fornecedor/CNPJ.
     """
     DATASET_DIR.mkdir(parents=True, exist_ok=True)
 
     data_cobranca_br   = data_cobranca.strftime("%d/%m/%Y")
     data_vencimento_br = data_vencimento.strftime("%d/%m/%Y")
+    cod_lancamento      = gerar_cod_lancamento()
 
     cols_to_save = [c for c in _SAVE_COLS if c in df_records.columns]
     df_save = df_records[cols_to_save].copy()
@@ -153,12 +184,13 @@ def save_charge_to_history(
         if pd.api.types.is_datetime64_any_dtype(df_save[col]):
             df_save[col] = df_save[col].dt.strftime("%d/%m/%Y")
 
-    # Metadados de cobrança: DATA → VENCIMENTO → PAGAMENTO → CNPJ → STATUS
-    df_save.insert(0, "DATA_COBRANCA",   data_cobranca_br)
-    df_save.insert(1, "DATA_VENCIMENTO", data_vencimento_br)
-    df_save.insert(2, "DATA_PAGAMENTO",  "")
-    df_save.insert(3, "CNPJ_FORNECEDOR", cnpj)
-    df_save.insert(4, COLS["status"],    STATUS_DEFAULT)
+    # Metadados de cobrança: CÓDIGO → DATA → VENCIMENTO → PAGAMENTO → CNPJ → STATUS
+    df_save.insert(0, "COD_LANCAMENTO",  cod_lancamento)
+    df_save.insert(1, "DATA_COBRANCA",   data_cobranca_br)
+    df_save.insert(2, "DATA_VENCIMENTO", data_vencimento_br)
+    df_save.insert(3, "DATA_PAGAMENTO",  "")
+    df_save.insert(4, "CNPJ_FORNECEDOR", cnpj)
+    df_save.insert(5, COLS["status"],    STATUS_DEFAULT)
 
     if BD_COBRANCA.exists():
         df_existing = _read_history_xlsx()
@@ -169,65 +201,102 @@ def save_charge_to_history(
     _write_history_xlsx(df_final)
     # Limpa cache do histórico para forçar nova leitura
     st.cache_data.clear()
+    return cod_lancamento
 
 
-def update_status(
-    row_index: int,
+def update_lancamento_status(
+    cod_lancamento: str,
     novo_status: str,
     data_pagamento: date | None = None,
 ) -> bool:
     """
-    Atualiza o STATUS_COBRANCA (e, quando aplicável, a DATA_PAGAMENTO) de uma
-    linha específica do histórico.
+    Atualiza o status (e a Data de Pagamento) de TODOS os itens de um mesmo
+    lançamento de cobrança — identificados pelo mesmo Código (COD_LANCAMENTO).
 
-    Em vez de editar célula a célula no .xlsx, a função relê o histórico
-    inteiro (já com as retrocompatibilidades aplicadas — ver
-    _read_history_xlsx), altera a linha em memória e regrava o arquivo
-    completo. Isso evita problemas em arquivos antigos que ainda não tinham
-    a coluna Data Pagamento.
+    Uma cobrança pode conter várias linhas (um item por defeito/OM). Por
+    isso a atualização de status acontece sempre no nível do lançamento
+    inteiro: marcar como "Pago" paga a cobrança toda de uma vez, não um
+    item isolado.
 
-    Args:
-        row_index:      índice da linha (0-based, mesma ordem usada por
-                         load_history() / _read_history_xlsx()).
-        novo_status:    "Pendente" | "Pago" | "Contestado".
-        data_pagamento: data em que o fornecedor efetivamente pagou,
-                         informada manualmente pelo usuário. Só é gravada
-                         quando novo_status == "Pago". Se o status for
-                         alterado para outro valor, a Data Pagamento
-                         existente é limpa (deixa de fazer sentido).
+    Quando novo_status == "Pago":
+      - Todas as linhas do lançamento são removidas de bd_cobranca.xlsx.
+      - As mesmas linhas (já com STATUS="Pago" e a Data de Pagamento
+        informada) são adicionadas em bd_pagamentos.xlsx — passam a
+        aparecer na aba "Pagamentos Concluídos" e saem do Histórico.
 
-    Retorna True em caso de sucesso, False em caso de erro.
+    Quando novo_status != "Pago" (ex.: reverter para Pendente/Contestado):
+      - As linhas continuam em bd_cobranca.xlsx, apenas com o status
+        atualizado e a Data de Pagamento limpa (deixou de fazer sentido).
+
+    Retorna True em caso de sucesso, False em caso de erro ou se o código
+    não for encontrado.
     """
     if novo_status not in STATUS_OPTIONS:
         return False
-
     if not BD_COBRANCA.exists():
         return False
 
     try:
         df = _read_history_xlsx()
 
-        if row_index < 0 or row_index >= len(df):
+        mask = df["COD_LANCAMENTO"] == cod_lancamento
+        if not mask.any():
             return False
 
-        status_col = COLS["status"]
-        df.loc[row_index, status_col] = novo_status
+        df.loc[mask, COLS["status"]] = novo_status
 
-        if "DATA_PAGAMENTO" not in df.columns:
-            df["DATA_PAGAMENTO"] = ""
+        if novo_status == "Pago":
+            data_pagamento_br = data_pagamento.strftime("%d/%m/%Y") if data_pagamento else ""
+            df.loc[mask, "DATA_PAGAMENTO"] = data_pagamento_br
 
-        if novo_status == "Pago" and data_pagamento is not None:
-            df.loc[row_index, "DATA_PAGAMENTO"] = data_pagamento.strftime("%d/%m/%Y")
-        elif novo_status != "Pago":
-            df.loc[row_index, "DATA_PAGAMENTO"] = ""
+            df_pago      = df[mask].copy()
+            df_remaining = df[~mask].copy()
 
-        _write_history_xlsx(df)
-        # Limpa cache do histórico para forçar nova leitura
+            _write_history_xlsx(df_remaining)
+
+            # Import local para evitar import circular no carregamento do módulo
+            from src.data.payment_history import append_payments
+            append_payments(df_pago)
+        else:
+            df.loc[mask, "DATA_PAGAMENTO"] = ""
+            _write_history_xlsx(df)
+
         st.cache_data.clear()
         return True
 
     except Exception:
         return False
+
+
+def migrate_paid_to_payments() -> int:
+    """
+    Migra lançamentos que porventura ainda estejam com STATUS="Pago" dentro
+    de bd_cobranca.xlsx — cobranças pagas antes de existir a aba "Pagamentos
+    Concluídos" — para bd_pagamentos.xlsx.
+
+    Idempotente: se não houver nada para migrar, não faz nada (nem grava
+    arquivos). Chamada automaticamente ao abrir a aba Histórico de Cobranças.
+
+    Retorna a quantidade de linhas migradas.
+    """
+    if not BD_COBRANCA.exists():
+        return 0
+
+    df = _read_history_xlsx()
+    mask = df[COLS["status"]] == "Pago"
+    if not mask.any():
+        return 0
+
+    df_pago      = df[mask].copy()
+    df_remaining = df[~mask].copy()
+
+    _write_history_xlsx(df_remaining)
+
+    from src.data.payment_history import append_payments
+    append_payments(df_pago)
+
+    st.cache_data.clear()
+    return int(mask.sum())
 
 
 def remove_supplier_from_df(supplier: str, supplier_col: str) -> None:
@@ -277,11 +346,18 @@ def _read_history_xlsx() -> pd.DataFrame:
     df = pd.read_excel(BD_COBRANCA, engine="openpyxl", header=3)
 
     _date_pat = _re.compile(r"^\d{2}/\d{2}/\d{4}$")
-    first_col = df.columns[0]
-    df = df[df[first_col].astype(str).str.match(_date_pat)]
+    # Filtra linhas de dados válidas usando a coluna "Data Cobrança" (identificada
+    # pelo nome, não pela posição — agora que "Código" passou a ser a 1ª coluna).
+    _date_col_matches = [c for c in df.columns if str(c).strip() in ("Data Cobrança", "Data Cobranca")]
+    filter_col = _date_col_matches[0] if _date_col_matches else df.columns[0]
+    df = df[df[filter_col].astype(str).str.match(_date_pat)]
     df = df.reset_index(drop=True)
 
     _label_to_internal = {
+        "Código":                  "COD_LANCAMENTO",
+        "Codigo":                  "COD_LANCAMENTO",
+        "Código do Pagamento":     "COD_LANCAMENTO",
+        "COD_LANCAMENTO":          "COD_LANCAMENTO",
         "Data Cobranca":           "DATA_COBRANCA",
         "Data Cobrança":           "DATA_COBRANCA",
         "Data Vencimento":         "DATA_VENCIMENTO",
@@ -304,6 +380,26 @@ def _read_history_xlsx() -> pd.DataFrame:
     }
     df = df.rename(columns=_label_to_internal)
     df = df.loc[:, ~df.columns.str.contains(r"\.\d+$", regex=True)]
+
+    # Retrocompatibilidade: lançamentos salvos antes de existir o Código do
+    # Lançamento/Pagamento. Gera um código determinístico (estável entre
+    # leituras) a partir de CNPJ + Data da Cobrança, para que o mesmo
+    # lançamento antigo sempre receba o mesmo código enquanto não for
+    # regravado no disco (o que "oficializa" o código permanentemente).
+    cod_col = "COD_LANCAMENTO"
+    if cod_col not in df.columns:
+        df.insert(0, cod_col, [
+            _cod_lancamento_fallback(row.get("CNPJ_FORNECEDOR", ""), row.get("DATA_COBRANCA", ""))
+            for _, row in df.iterrows()
+        ])
+    else:
+        df[cod_col] = df[cod_col].fillna("").astype(str).str.strip()
+        _faltando = df[cod_col] == ""
+        if _faltando.any():
+            df.loc[_faltando, cod_col] = [
+                _cod_lancamento_fallback(row.get("CNPJ_FORNECEDOR", ""), row.get("DATA_COBRANCA", ""))
+                for _, row in df.loc[_faltando].iterrows()
+            ]
 
     # Retrocompatibilidade: arquivos antigos sem STATUS_COBRANCA
     status_col = COLS["status"]
@@ -396,6 +492,7 @@ def _write_history_xlsx(df: pd.DataFrame) -> None:
     # ── Linha 4: cabeçalho das colunas ───────────────────────────────────────
     header_row = _HEADER_OFFSET
     col_labels = {
+        "COD_LANCAMENTO":  "Código",
         "DATA_COBRANCA":   "Data Cobrança",
         "DATA_VENCIMENTO": "Data Vencimento",
         "DATA_PAGAMENTO":  "Data Pagamento",
@@ -460,7 +557,10 @@ def _write_history_xlsx(df: pd.DataFrame) -> None:
             cell.fill = PatternFill("solid", fgColor=fill_color)
             cell.font = Font(name="Calibri", size=9)
 
-            if col == "DATA_VENCIMENTO":
+            if col == "COD_LANCAMENTO":
+                cell.font      = Font(name="Consolas", size=9, bold=True, color=_PURPLE_MID)
+                cell.alignment = Alignment(horizontal="center")
+            elif col == "DATA_VENCIMENTO":
                 cell.alignment = Alignment(horizontal="center")
                 _venc_dt = pd.to_datetime(val, format="%d/%m/%Y", errors="coerce") if val else None
                 _status_atual = str(row.get(status_col_name, "")).strip()

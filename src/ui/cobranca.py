@@ -813,7 +813,7 @@ def _render_charge_button(
             )
 
             # 3. Salva no histórico bd_cobranca.xlsx
-            save_charge_to_history(
+            cod_lancamento = save_charge_to_history(
                 supplier=supplier,
                 cnpj=cnpj,
                 total=total,
@@ -831,6 +831,7 @@ def _render_charge_button(
         st.session_state[charge_doc_key]            = excel_bytes
         st.session_state[f"charge_html_{supplier}"] = html_page
         st.session_state[f"charge_time_{supplier}"] = now_str
+        st.session_state[f"charge_cod_{supplier}"]  = cod_lancamento
         st.rerun()
 
     already_launched = st.session_state.get(charge_key, False)
@@ -838,6 +839,7 @@ def _render_charge_button(
     if already_launched:
         # ── Estado: cobrança lançada ──────────────────────────────────────────
         launched_at = st.session_state.get(f"charge_time_{supplier}", "")
+        cod_lancamento = st.session_state.get(f"charge_cod_{supplier}", "")
         st.markdown(
             f"""
             <div style="
@@ -851,6 +853,7 @@ def _render_charge_button(
                 <p style="font-size:12px;color:{COLORS['text_muted']};margin:4px 0 0">
                     Fornecedor: <strong>{supplier}</strong> —
                     Emitida em: {launched_at} —
+                    Código: <code style="color:#534AB7;font-weight:700">{cod_lancamento}</code> —
                     Registros removidos da planilha ativa e salvos em
                     <code style="color:#0D1B17">dataset/bd_cobranca.xlsx</code>
                 </p>

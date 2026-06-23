@@ -528,6 +528,7 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
     rows = ""
     for _, row in df_filtered.iterrows():
         val_cobranca = row.get("Data Cobrança", "")
+        cod_lancamento = row.get("Código", "")
         val_vencimento = row.get("Data Vencimento", "")
         val_pagamento = row.get("Data Pagamento", "")
         supplier = row.get("Fornecedor", "")
@@ -598,6 +599,7 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
             
         rows += (
             "<tr>"
+            f"<td style='font-family:Consolas,monospace;font-weight:600;color:#534AB7'>{cod_lancamento}</td>"
             f"<td>{val_cobranca}</td>"
             f"<td>{val_vencimento}</td>"
             f"<td>{val_pagamento}</td>"
@@ -690,7 +692,7 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
 <table>
   <thead>
     <tr>
-      <th>Data Cobrança</th><th>Vencimento</th><th>Pagamento</th><th>Situação</th>
+      <th>Código</th><th>Data Cobrança</th><th>Vencimento</th><th>Pagamento</th><th>Situação</th>
       <th style="text-align:left">Fornecedor</th><th>CNPJ</th>
       <th>Status</th><th>OM</th><th>Data Produção</th><th>Qtd</th>
       <th style="text-align:left">Remonte / Defeito</th><th>Real Cortado</th>
