@@ -186,6 +186,84 @@ st.markdown(
     /* ── Links ── */
     a, a:visited { color: #00805C !important; }
     a:hover { color:#0D1B17 !important; }
+
+    /* ── Vega/Altair chart tooltips ── */
+    #vg-tooltip-element {
+        background: #061210 !important;
+        border: 1px solid #00B884 !important;
+        border-radius: 12px !important;
+        padding: 14px 18px !important;
+        box-shadow:
+            0 0 0 1px rgba(0,229,160,0.15),
+            0 0 28px rgba(0,184,132,0.55),
+            0 0 60px rgba(0,184,132,0.20),
+            0 8px 28px rgba(0,0,0,0.90) !important;
+        font-family: 'Inter', monospace !important;
+        min-width: 170px !important;
+        pointer-events: none !important;
+        z-index: 9999 !important;
+    }
+    #vg-tooltip-element h2 {
+        color: #00E5A0 !important;
+        font-size: 10px !important;
+        font-weight: 700 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1.2px !important;
+        margin: 0 0 10px 0 !important;
+        padding-bottom: 7px !important;
+        border-bottom: 1px solid rgba(0,229,160,0.25) !important;
+    }
+    #vg-tooltip-element table {
+        border-spacing: 0 !important;
+        border-collapse: collapse !important;
+        width: 100% !important;
+    }
+    #vg-tooltip-element tr {
+        border-bottom: 1px solid rgba(0,184,132,0.08) !important;
+    }
+    #vg-tooltip-element tr:last-child {
+        border-bottom: none !important;
+    }
+    #vg-tooltip-element td {
+        padding: 5px 0 !important;
+        font-size: 13px !important;
+        line-height: 1.4 !important;
+    }
+    #vg-tooltip-element td.key {
+        color: #5FF6C6 !important;
+        font-size: 10.5px !important;
+        font-weight: 600 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.7px !important;
+        padding-right: 20px !important;
+        opacity: 0.80 !important;
+        white-space: nowrap !important;
+    }
+    #vg-tooltip-element td.value {
+        color: #00FF9C !important;
+        font-size: 14px !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.3px !important;
+        text-align: right !important;
+        text-shadow: 0 0 10px rgba(0,255,156,0.50) !important;
+    }
+
+    /* ── Streamlit help (ⓘ) tooltips ── */
+    [data-baseweb="tooltip"] > div {
+        background: #061210 !important;
+        border: 1px solid #00B884 !important;
+        border-radius: 10px !important;
+        box-shadow:
+            0 0 22px rgba(0,184,132,0.50),
+            0 6px 20px rgba(0,0,0,0.80) !important;
+        padding: 10px 14px !important;
+        max-width: 320px !important;
+    }
+    [data-baseweb="tooltip"] * {
+        color: #00E5A0 !important;
+        font-size: 12.5px !important;
+        line-height: 1.6 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,

@@ -1,6 +1,6 @@
 """
 Layout UI layer.
-Organises Plotly charts into page sections using Streamlit columns.
+Organises ECharts charts into page sections using Streamlit columns.
 Calls chart builder functions; does not contain chart logic.
 Always 2 charts per row.
 """
@@ -72,38 +72,23 @@ def _render_distribution(processor: DataProcessor) -> None:
     with c1:
         _chart_label("Tipo de defeito")
         _defect_legend()
-        st.plotly_chart(
-            builder.donut_defect_type(processor.by_defect_type()),
-            use_container_width=True,
-        )
+        st.altair_chart(builder.donut_defect_type(processor.by_defect_type()), use_container_width=True)
 
     with c2:
         _chart_label("Local do defeito")
-        st.plotly_chart(
-            builder.bar_location(processor.by_location()),
-            use_container_width=True,
-        )
+        st.altair_chart(builder.bar_location(processor.by_location()), use_container_width=True)
 
 
 # ── Section 2: Evolução Temporal ──────────────────────────────────────────────
 
 def _render_temporal(processor: DataProcessor) -> None:
     _section("Evolução Temporal", "📅")
-    c1, c2 = st.columns(2)
 
-    with c1:
-        _chart_label("Defeitos por dia")
-        st.plotly_chart(
-            builder.area_defects_by_date(processor.by_date()),
-            use_container_width=True,
-        )
+    _chart_label("Defeitos por dia")
+    st.altair_chart(builder.area_defects_by_date(processor.by_date()), use_container_width=True)
 
-    with c2:
-        _chart_label("Custo de remonte por dia (R$)")
-        st.plotly_chart(
-            builder.area_cost_by_date(processor.by_date_cost()),
-            use_container_width=True,
-        )
+    _chart_label("Custo de remonte por dia (R$)")
+    st.altair_chart(builder.area_cost_by_date(processor.by_date_cost()), use_container_width=True)
 
 
 # ── Section 3: Análise por Fornecedor (2 linhas × 2 colunas) ─────────────────
@@ -115,16 +100,10 @@ def _render_suppliers(processor: DataProcessor) -> None:
     c1, c2 = st.columns(2)
     with c1:
         _chart_label("Top 10 — quantidade de defeitos")
-        st.plotly_chart(
-            builder.bar_supplier_quantity(processor.by_supplier_quantity(10)),
-            use_container_width=True,
-        )
+        st.altair_chart(builder.bar_supplier_quantity(processor.by_supplier_quantity(10)), use_container_width=True)
     with c2:
         _chart_label("Top 10 — custo de remonte (R$)")
-        st.plotly_chart(
-            builder.bar_supplier_cost(processor.by_supplier_cost(10)),
-            use_container_width=True,
-        )
+        st.altair_chart(builder.bar_supplier_cost(processor.by_supplier_cost(10)), use_container_width=True)
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
@@ -132,17 +111,11 @@ def _render_suppliers(processor: DataProcessor) -> None:
     c3, c4 = st.columns(2)
     with c3:
         _chart_label("Top 10 — taxa de remonte (%)")
-        st.plotly_chart(
-            builder.bar_supplier_rate(processor.by_supplier_rate(10)),
-            use_container_width=True,
-        )
+        st.altair_chart(builder.bar_supplier_rate(processor.by_supplier_rate(10)), use_container_width=True)
     with c4:
         _chart_label("Top 12 — combinações Local × Defeito")
         _defect_legend()
-        st.plotly_chart(
-            builder.bar_key_combinations(processor.by_key(12)),
-            use_container_width=True,
-        )
+        st.altair_chart(builder.bar_key_combinations(processor.by_key(12)), use_container_width=True)
 
 
 # ── Section 4: Tabela de dados detalhados ─────────────────────────────────────

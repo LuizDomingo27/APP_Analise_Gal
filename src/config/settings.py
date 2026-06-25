@@ -1,5 +1,5 @@
 """
-Central configuration: colors, column names, Plotly layout defaults.
+Central configuration: colors, column names, ECharts layout defaults.
 """
 
 from pathlib import Path
@@ -72,29 +72,20 @@ COLS = {
     "status":       "STATUS_COBRANCA",
 }
 
-# ── Plotly defaults ───────────────────────────────────────────────────────────
-PLOTLY_BASE = {
-    "paper_bgcolor": "rgba(0,0,0,0)",
-    "plot_bgcolor":  "rgba(0,0,0,0)",
-    "font":          {"family": "Inter, sans-serif", "color": "#4A5752", "size": 12},
-    "margin":        {"t": 30, "b": 20, "l": 10, "r": 24},
-    "showlegend":    False,
-    "hoverlabel":    {"bgcolor": "#FFFFFF", "bordercolor": "#00B884", "font_color": "#0D1B17"},
+# ── Altair/Vega-Lite theme config ─────────────────────────────────────────────
+ALTAIR_AXIS = {
+    "labelColor": "#4A5752",
+    "labelFontSize": 11,
+    "labelFont": "Inter, sans-serif",
+    "grid": False,
+    "domainColor": "rgba(0,0,0,0.10)",
+    "tickColor": "rgba(0,0,0,0)",
+    "titleColor": "#4A5752",
 }
 
-AXIS_X = {
-    "gridcolor":   "rgba(0,0,0,0.06)",
-    "linecolor":   "rgba(0,0,0,0.10)",
-    "tickcolor":   "rgba(0,0,0,0)",
-    "tickfont":    {"color": "#4A5752", "size": 11},
-    "zerolinecolor": "rgba(0,0,0,0.10)",
-}
-
-AXIS_Y = {
-    "gridcolor":   "rgba(0,0,0,0.06)",
-    "linecolor":   "rgba(0,0,0,0.10)",
-    "tickcolor":   "rgba(0,0,0,0)",
-    "tickfont":    {"color": "#4A5752", "size": 11},
-    "zerolinecolor": "rgba(0,0,0,0.10)",
-    "showgrid":    False,
+ALTAIR_CONFIG = {
+    "background": "transparent",
+    "font": "Inter, sans-serif",
+    "axis": ALTAIR_AXIS,
+    "view": {"strokeOpacity": 0},
 }

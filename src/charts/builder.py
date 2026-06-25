@@ -1,317 +1,331 @@
 """
 Chart builder layer.
-Pure functions: receive DataFrames, return Plotly Figure objects.
+Pure functions: receive DataFrames, return Altair Chart objects.
 No Streamlit, no business logic.
 """
 
-import plotly.graph_objects as go
+import altair as alt
 import pandas as pd
-from src.config.settings import COLS, COLORS, DEFECT_COLORS, PLOTLY_BASE, AXIS_X, AXIS_Y
+from src.config.settings import COLS, COLORS, DEFECT_COLORS, ALTAIR_CONFIG
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _layout(**overrides) -> dict:
-    """Merge PLOTLY_BASE with per-chart overrides."""
-    return {**PLOTLY_BASE, **overrides}
-
-
-def _hbar_margin(label_chars: int = 25) -> dict:
-    """Left margin sized to the longest y-axis label; right margin for outside text."""
-    return {"t": 40, "b": 30, "l": max(160, label_chars * 7), "r": 110}
-
-
-def _xrange_pad(series: pd.Series, pct: float = 0.32) -> list:
-    """Extend x-axis beyond max so outside text labels are never clipped."""
-    mx = float(series.max()) if len(series) > 0 else 1.0
-    return [0, mx * (1 + pct)]
-
-
-def _sparse_text(series: pd.Series, fmt_fn, max_labels: int = 15) -> list[str]:
-    """
-    Return formatted labels for at most max_labels points, evenly spaced.
-    Prevents overlap on dense area/line charts.
-    """
-    n = len(series)
-    if n == 0:
-        return []
-    if n <= max_labels:
-        return [fmt_fn(v) for v in series]
-    step = max(1, (n - 1) // (max_labels - 1))
-    return [fmt_fn(v) if i % step == 0 else "" for i, v in enumerate(series)]
+def _configure(chart: alt.Chart) -> alt.Chart:
+    """Apply consistent app-wide styling to a chart."""
+    return chart.configure(**ALTAIR_CONFIG)
 
 
 # ── Donut – defect type ───────────────────────────────────────────────────────
 
-def donut_defect_type(df: pd.DataFrame) -> go.Figure:
+def donut_defect_type(df: pd.DataFrame) -> alt.Chart:
     total = int(df[COLS["quantity"]].sum())
-    colors = [DEFECT_COLORS.get(d, COLORS["gray"]) for d in df[COLS["defect"]]]
+    d = df.copy()
+    d["_pct"] = (d[COLS["quantity"]] / total * 100).round(1)
+    d["_pct_label"] = d["_pct"].astype(str) + "%"
+    d["_name"] = d[COLS["defect"]].str[:20]
+    # Oculta rótulos de fatias menores que 3% para evitar sobreposição
+    d["_name_shown"] = d.apply(lambda r: r["_name"] if r["_pct"] >= 3 else "", axis=1)
+    d["_pct_shown"] = d.apply(lambda r: r["_pct_label"] if r["_pct"] >= 3 else "", axis=1)
 
-    fig = go.Figure(
-        go.Pie(
-            labels=df[COLS["defect"]],
-            values=df[COLS["quantity"]],
-            hole=0.55,
-            marker=dict(colors=colors, line=dict(color="#FAFCFB", width=2)),
-            textinfo="percent+label",
-            textposition="outside",
-            textfont=dict(size=12, color="#4A5752"),
-            insidetextorientation="radial",
-            outsidetextfont=dict(size=11, color="#4A5752"),
-            hovertemplate="<b>%{label}</b><br>Qtd: %{value:,}<br>%{percent}<extra></extra>",
-            pull=[0.04 if i == 0 else 0 for i in range(len(df))],
+    theta = alt.Theta(field=COLS["quantity"], type="quantitative", stack=True)
+    color_enc = alt.Color(
+        field=COLS["defect"],
+        type="nominal",
+        scale=alt.Scale(
+            domain=list(DEFECT_COLORS.keys()),
+            range=list(DEFECT_COLORS.values()),
+        ),
+        legend=None,
+    )
+
+    arc = (
+        alt.Chart(d)
+        .mark_arc(innerRadius=110, outerRadius=185, stroke="#FAFCFB", strokeWidth=2)
+        .encode(
+            theta=theta,
+            color=color_enc,
+            tooltip=[
+                alt.Tooltip(field=COLS["defect"], type="nominal", title="Tipo"),
+                alt.Tooltip(field=COLS["quantity"], type="quantitative", title="Qtd", format=",d"),
+                alt.Tooltip(field="_pct", type="quantitative", title="%", format=".1f"),
+            ],
         )
+        .properties(width=520, height=520)
     )
-    fig.update_layout(
-        **_layout(height=380, margin={"t": 50, "b": 50, "l": 90, "r": 90}),
-        annotations=[dict(
-            text=f"<b>{total:,}</b><br><span style='font-size:10px'>peças</span>",
-            x=0.5, y=0.5, font=dict(size=18, color="#0D1B17"),
-            showarrow=False,
-        )],
-        uniformtext_minsize=10,
-        uniformtext_mode="hide",
+
+    label_name = (
+        alt.Chart(d)
+        .mark_text(radius=220, fontSize=11, color="#0D1B17", fontWeight="bold", dy=-8)
+        .encode(theta=theta, text=alt.Text(field="_name_shown"))
     )
-    return fig
+
+    label_pct = (
+        alt.Chart(d)
+        .mark_text(radius=220, fontSize=10, color="#4A5752", dy=8)
+        .encode(theta=theta, text=alt.Text(field="_pct_shown"))
+    )
+
+    center_total = (
+        alt.Chart(pd.DataFrame([{"v": f"{total:,}"}]))
+        .mark_text(fontSize=28, fontWeight="bold", color="#0D1B17", dy=-10)
+        .encode(text=alt.Text(field="v", type="nominal"))
+    )
+    center_label = (
+        alt.Chart(pd.DataFrame([{"v": "peças"}]))
+        .mark_text(fontSize=13, color="#4A5752", dy=18)
+        .encode(text=alt.Text(field="v", type="nominal"))
+    )
+
+    return _configure(arc + label_name + label_pct + center_total + center_label)
 
 
 # ── Horizontal bar – location ─────────────────────────────────────────────────
 
-def bar_location(df: pd.DataFrame) -> go.Figure:
-    d = df.sort_values(COLS["quantity"], ascending=True)
-    fig = go.Figure(
-        go.Bar(
-            x=d[COLS["quantity"]],
-            y=d[COLS["location"]],
-            orientation="h",
-            marker=dict(
-                color=d[COLS["quantity"]],
-                colorscale=[[0, "#00805C"], [0.5, "#00B884"], [1, "#5FF6C6"]],
-                line=dict(width=0),
+def bar_location(df: pd.DataFrame) -> alt.Chart:
+    d = df.sort_values(COLS["quantity"], ascending=False)
+    h = max(320, len(d) * 42 + 80)
+
+    bars = (
+        alt.Chart(d)
+        .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+        .encode(
+            x=alt.X(
+                field=COLS["quantity"], type="quantitative",
+                axis=alt.Axis(title=None, grid=False),
             ),
-            text=d[COLS["quantity"]].apply(lambda v: f"{v:,}"),
-            textposition="outside",
-            textfont=dict(color="#4A5752", size=12, family="Inter, sans-serif"),
-            cliponaxis=False,
-            hovertemplate="<b>%{y}</b><br>Qtd: %{x:,}<extra></extra>",
+            y=alt.Y(
+                field=COLS["location"], type="nominal",
+                sort=alt.EncodingSortField(field=COLS["quantity"], order="descending"),
+                axis=alt.Axis(title=None),
+            ),
+            color=alt.Color(
+                field=COLS["quantity"], type="quantitative",
+                scale=alt.Scale(range=["#00805C", "#5FF6C6"]),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip(field=COLS["location"], type="nominal", title="Local"),
+                alt.Tooltip(field=COLS["quantity"], type="quantitative", title="Qtd", format=",d"),
+            ],
         )
     )
-    fig.update_layout(
-        **_layout(
-            height=max(320, len(d) * 42 + 80),
-            margin=_hbar_margin(12),
-        ),
-        xaxis={**AXIS_X, "showgrid": True, "range": _xrange_pad(d[COLS["quantity"]])},
-        yaxis={**AXIS_Y},
-        uniformtext_minsize=10,
-        uniformtext_mode="hide",
+
+    text = bars.mark_text(align="left", dx=5, color="#4A5752", fontSize=11).encode(
+        text=alt.Text(field=COLS["quantity"], type="quantitative", format=",d"),
+        color=alt.value("#4A5752"),
     )
-    return fig
+
+    return _configure((bars + text).properties(height=h))
 
 
 # ── Horizontal bar – supplier quantity ────────────────────────────────────────
 
-def bar_supplier_quantity(df: pd.DataFrame) -> go.Figure:
-    d = df.sort_values(COLS["quantity"], ascending=True).copy()
-    d["label"] = d[COLS["supplier"]].str[:28]
-    fig = go.Figure(
-        go.Bar(
-            x=d[COLS["quantity"]],
-            y=d["label"],
-            orientation="h",
-            marker=dict(
-                color=d[COLS["quantity"]],
-                colorscale=[[0, "#00805C"], [0.5, "#00805C"], [1, "#5FF6C6"]],
-                line=dict(width=0),
+def bar_supplier_quantity(df: pd.DataFrame) -> alt.Chart:
+    d = df.sort_values(COLS["quantity"], ascending=False).copy()
+    d["_label"] = d[COLS["supplier"]].str[:28]
+    h = max(340, len(d) * 42 + 80)
+
+    bars = (
+        alt.Chart(d)
+        .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+        .encode(
+            x=alt.X(
+                field=COLS["quantity"], type="quantitative",
+                axis=alt.Axis(title=None, grid=False),
             ),
-            text=d[COLS["quantity"]].apply(lambda v: f"{v:,}"),
-            textposition="outside",
-            textfont=dict(color="#4A5752", size=12, family="Inter, sans-serif"),
-            cliponaxis=False,
-            hovertemplate="<b>%{y}</b><br>Qtd: %{x:,}<extra></extra>",
+            y=alt.Y(
+                field="_label", type="nominal",
+                sort=alt.EncodingSortField(field=COLS["quantity"], order="descending"),
+                axis=alt.Axis(title=None),
+            ),
+            color=alt.Color(
+                field=COLS["quantity"], type="quantitative",
+                scale=alt.Scale(range=["#00805C", "#5FF6C6"]),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip(field=COLS["supplier"], type="nominal", title="Fornecedor"),
+                alt.Tooltip(field=COLS["quantity"], type="quantitative", title="Qtd", format=",d"),
+            ],
         )
     )
-    fig.update_layout(
-        **_layout(height=max(340, len(d) * 42 + 80), margin=_hbar_margin(28)),
-        xaxis={**AXIS_X, "showgrid": True, "range": _xrange_pad(d[COLS["quantity"]])},
-        yaxis={**AXIS_Y},
-        uniformtext_minsize=10,
-        uniformtext_mode="hide",
+
+    text = bars.mark_text(align="left", dx=5, fontSize=11).encode(
+        text=alt.Text(field=COLS["quantity"], type="quantitative", format=",d"),
+        color=alt.value("#4A5752"),
     )
-    return fig
+
+    return _configure((bars + text).properties(height=h))
 
 
 # ── Horizontal bar – supplier cost ────────────────────────────────────────────
 
-def bar_supplier_cost(df: pd.DataFrame) -> go.Figure:
-    d = df.sort_values(COLS["value_brl"], ascending=True).copy()
-    d["label"] = d[COLS["supplier"]].str[:28]
-    fig = go.Figure(
-        go.Bar(
-            x=d[COLS["value_brl"]],
-            y=d["label"],
-            orientation="h",
-            marker=dict(
-                color=d[COLS["value_brl"]],
-                colorscale=[[0, "#9A2A14"], [0.5, "#C04428"], [1, "#F07555"]],
-                line=dict(width=0),
+def bar_supplier_cost(df: pd.DataFrame) -> alt.Chart:
+    d = df.sort_values(COLS["value_brl"], ascending=False).copy()
+    d["_label"] = d[COLS["supplier"]].str[:28]
+    h = max(340, len(d) * 42 + 80)
+
+    bars = (
+        alt.Chart(d)
+        .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+        .encode(
+            x=alt.X(
+                field=COLS["value_brl"], type="quantitative",
+                axis=alt.Axis(title=None, grid=False, format="$,.0f"),
             ),
-            text=d[COLS["value_brl"]].apply(lambda v: f"R${v:,.0f}"),
-            textposition="outside",
-            textfont=dict(color="#4A5752", size=12, family="Inter, sans-serif"),
-            cliponaxis=False,
-            hovertemplate="<b>%{y}</b><br>Custo: R$%{x:,.2f}<extra></extra>",
+            y=alt.Y(
+                field="_label", type="nominal",
+                sort=alt.EncodingSortField(field=COLS["value_brl"], order="descending"),
+                axis=alt.Axis(title=None),
+            ),
+            color=alt.Color(
+                field=COLS["value_brl"], type="quantitative",
+                scale=alt.Scale(range=["#9A2A14", "#F07555"]),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip(field=COLS["supplier"], type="nominal", title="Fornecedor"),
+                alt.Tooltip(field=COLS["value_brl"], type="quantitative", title="Custo (R$)", format=",.2f"),
+            ],
         )
     )
-    fig.update_layout(
-        **_layout(height=max(340, len(d) * 42 + 80), margin=_hbar_margin(28)),
-        xaxis={
-            **AXIS_X,
-            "showgrid": True,
-            "tickprefix": "R$",
-            "range": _xrange_pad(d[COLS["value_brl"]]),
-        },
-        yaxis={**AXIS_Y},
-        uniformtext_minsize=10,
-        uniformtext_mode="hide",
+
+    text = bars.mark_text(align="left", dx=5, fontSize=11).encode(
+        text=alt.Text(field=COLS["value_brl"], type="quantitative", format="$,.0f"),
+        color=alt.value("#4A5752"),
     )
-    return fig
+
+    return _configure((bars + text).properties(height=h))
 
 
 # ── Horizontal bar – supplier remonte rate ────────────────────────────────────
 
-def bar_supplier_rate(df: pd.DataFrame) -> go.Figure:
-    d = df.sort_values(COLS["pct_remonte"], ascending=True).copy()
-    d["label"] = d[COLS["supplier"]].str[:28]
-    fig = go.Figure(
-        go.Bar(
-            x=d[COLS["pct_remonte"]],
-            y=d["label"],
-            orientation="h",
-            marker=dict(
-                color=d[COLS["pct_remonte"]],
-                colorscale=[[0, "#7A5210"], [0.5, "#B07820"], [1, "#F0B840"]],
-                line=dict(width=0),
+def bar_supplier_rate(df: pd.DataFrame) -> alt.Chart:
+    d = df.sort_values(COLS["pct_remonte"], ascending=False).copy()
+    d["_label"] = d[COLS["supplier"]].str[:28]
+    h = max(340, len(d) * 42 + 80)
+
+    bars = (
+        alt.Chart(d)
+        .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+        .encode(
+            x=alt.X(
+                field=COLS["pct_remonte"], type="quantitative",
+                axis=alt.Axis(title=None, grid=False, format=".2f"),
             ),
-            text=d[COLS["pct_remonte"]].apply(lambda v: f"{v:.2f}%"),
-            textposition="outside",
-            textfont=dict(color="#4A5752", size=12, family="Inter, sans-serif"),
-            cliponaxis=False,
-            hovertemplate="<b>%{y}</b><br>Taxa: %{x:.2f}%<extra></extra>",
+            y=alt.Y(
+                field="_label", type="nominal",
+                sort=alt.EncodingSortField(field=COLS["pct_remonte"], order="descending"),
+                axis=alt.Axis(title=None),
+            ),
+            color=alt.Color(
+                field=COLS["pct_remonte"], type="quantitative",
+                scale=alt.Scale(range=["#7A5210", "#F0B840"]),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip(field=COLS["supplier"], type="nominal", title="Fornecedor"),
+                alt.Tooltip(field=COLS["pct_remonte"], type="quantitative", title="Taxa (%)", format=".2f"),
+            ],
         )
     )
-    fig.update_layout(
-        **_layout(height=max(340, len(d) * 42 + 80), margin=_hbar_margin(28)),
-        xaxis={
-            **AXIS_X,
-            "showgrid": True,
-            "ticksuffix": "%",
-            "range": _xrange_pad(d[COLS["pct_remonte"]]),
-        },
-        yaxis={**AXIS_Y},
-        uniformtext_minsize=10,
-        uniformtext_mode="hide",
+
+    text = bars.mark_text(align="left", dx=5, fontSize=11).encode(
+        text=alt.Text(field=COLS["pct_remonte"], type="quantitative", format=".2f"),
+        color=alt.value("#4A5752"),
     )
-    return fig
+
+    return _configure((bars + text).properties(height=h))
 
 
 # ── Horizontal bar – key combinations ────────────────────────────────────────
 
-def bar_key_combinations(df: pd.DataFrame) -> go.Figure:
+def bar_key_combinations(df: pd.DataFrame) -> alt.Chart:
     d = df.copy()
-    d["combo"] = d[COLS["location"]] + " / " + d[COLS["defect"]]
-    d = d.sort_values(COLS["quantity"], ascending=True)
-    bar_colors = [
-        DEFECT_COLORS.get(row[COLS["defect"]], COLORS["gray"])
-        for _, row in d.iterrows()
-    ]
-    fig = go.Figure(
-        go.Bar(
-            x=d[COLS["quantity"]],
-            y=d["combo"],
-            orientation="h",
-            marker=dict(
-                color=bar_colors,
-                line=dict(color="rgba(0,0,0,0.06)", width=1),
+    d["_combo"] = d[COLS["location"]] + " / " + d[COLS["defect"]]
+    d = d.sort_values(COLS["quantity"], ascending=False)
+    h = max(340, len(d) * 38 + 80)
+
+    color_domain = list(DEFECT_COLORS.keys())
+    color_range  = list(DEFECT_COLORS.values())
+
+    bars = (
+        alt.Chart(d)
+        .mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4)
+        .encode(
+            x=alt.X(
+                field=COLS["quantity"], type="quantitative",
+                axis=alt.Axis(title=None, grid=False),
             ),
-            text=d[COLS["quantity"]].apply(lambda v: f"{v:,}"),
-            textposition="outside",
-            textfont=dict(color="#4A5752", size=12, family="Inter, sans-serif"),
-            cliponaxis=False,
-            hovertemplate="<b>%{y}</b><br>Qtd: %{x:,}<extra></extra>",
+            y=alt.Y(
+                field="_combo", type="nominal",
+                sort=alt.EncodingSortField(field=COLS["quantity"], order="descending"),
+                axis=alt.Axis(title=None),
+            ),
+            color=alt.Color(
+                field=COLS["defect"], type="nominal",
+                scale=alt.Scale(domain=color_domain, range=color_range),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip(field="_combo", type="nominal", title="Combinação"),
+                alt.Tooltip(field=COLS["quantity"], type="quantitative", title="Qtd", format=",d"),
+            ],
         )
     )
-    fig.update_layout(
-        **_layout(height=max(340, len(d) * 38 + 80), margin=_hbar_margin(32)),
-        xaxis={**AXIS_X, "showgrid": True, "range": _xrange_pad(d[COLS["quantity"]])},
-        yaxis={**AXIS_Y},
-        uniformtext_minsize=10,
-        uniformtext_mode="hide",
+
+    text = bars.mark_text(align="left", dx=5, fontSize=11).encode(
+        text=alt.Text(field=COLS["quantity"], type="quantitative", format=",d"),
+        color=alt.value("#4A5752"),
     )
-    return fig
+
+    return _configure((bars + text).properties(height=h))
 
 
 # ── Area – defects by date ────────────────────────────────────────────────────
 
-def area_defects_by_date(df: pd.DataFrame) -> go.Figure:
-    labels = _sparse_text(df[COLS["quantity"]], lambda v: f"{v:,}")
-    fig = go.Figure(
-        go.Scatter(
-            x=df[COLS["date"]],
-            y=df[COLS["quantity"]],
-            mode="lines+markers+text",
-            line=dict(color=COLORS["primary"], width=2.5, shape="spline", smoothing=0.5),
-            marker=dict(
-                size=8,
-                color=COLORS["primary"],
-                line=dict(color="#FAFCFB", width=2),
-                symbol="circle",
-            ),
-            text=labels,
-            textposition="top center",
-            textfont=dict(color="#4A5752", size=11, family="Inter, sans-serif"),
-            cliponaxis=False,
-            fill="tozeroy",
-            fillcolor="rgba(0,229,160,0.12)",
-            hovertemplate="<b>%{x|%d/%m/%Y}</b><br>Defeitos: %{y:,}<extra></extra>",
-        )
+def area_defects_by_date(df: pd.DataFrame) -> alt.Chart:
+    base = alt.Chart(df).encode(
+        x=alt.X(
+            field=COLS["date"], type="temporal",
+            axis=alt.Axis(format="%d/%m", title=None, grid=False),
+        ),
+        y=alt.Y(
+            field=COLS["quantity"], type="quantitative",
+            axis=alt.Axis(title=None, grid=False),
+        ),
+        tooltip=[
+            alt.Tooltip(field=COLS["date"], type="temporal", title="Data", format="%d/%m/%Y"),
+            alt.Tooltip(field=COLS["quantity"], type="quantitative", title="Defeitos", format=",d"),
+        ],
     )
-    fig.update_layout(
-        **_layout(height=330, margin={"t": 64, "b": 36, "l": 52, "r": 30}),
-        xaxis={**AXIS_X, "showgrid": False, "tickformat": "%d/%m"},
-        yaxis={**AXIS_X, "showgrid": True, "autorange": True},
-    )
-    return fig
+
+    area   = base.mark_area(color="#00B884", opacity=0.12, line=False)
+    line   = base.mark_line(color="#00B884", strokeWidth=2.5, interpolate="monotone")
+    points = base.mark_circle(color="#00B884", size=55, opacity=1)
+
+    return _configure((area + line + points).properties(height=330))
 
 
 # ── Area – cost by date ───────────────────────────────────────────────────────
 
-def area_cost_by_date(df: pd.DataFrame) -> go.Figure:
-    labels = _sparse_text(df[COLS["value_brl"]], lambda v: f"R${v:,.0f}")
-    fig = go.Figure(
-        go.Scatter(
-            x=df[COLS["date"]],
-            y=df[COLS["value_brl"]],
-            mode="lines+markers+text",
-            line=dict(color=COLORS["coral"], width=2.5, shape="spline", smoothing=0.5),
-            marker=dict(
-                size=8,
-                color=COLORS["coral"],
-                line=dict(color="#FAFCFB", width=2),
-                symbol="circle",
-            ),
-            text=labels,
-            textposition="top center",
-            textfont=dict(color="#4A5752", size=11, family="Inter, sans-serif"),
-            cliponaxis=False,
-            fill="tozeroy",
-            fillcolor="rgba(216,90,48,0.12)",
-            hovertemplate="<b>%{x|%d/%m/%Y}</b><br>Custo: R$%{y:,.2f}<extra></extra>",
-        )
+def area_cost_by_date(df: pd.DataFrame) -> alt.Chart:
+    base = alt.Chart(df).encode(
+        x=alt.X(
+            field=COLS["date"], type="temporal",
+            axis=alt.Axis(format="%d/%m", title=None, grid=False),
+        ),
+        y=alt.Y(
+            field=COLS["value_brl"], type="quantitative",
+            axis=alt.Axis(title=None, grid=False, format="$,.0f"),
+        ),
+        tooltip=[
+            alt.Tooltip(field=COLS["date"], type="temporal", title="Data", format="%d/%m/%Y"),
+            alt.Tooltip(field=COLS["value_brl"], type="quantitative", title="Custo (R$)", format=",.2f"),
+        ],
     )
-    fig.update_layout(
-        **_layout(height=330, margin={"t": 64, "b": 36, "l": 70, "r": 30}),
-        xaxis={**AXIS_X, "showgrid": False, "tickformat": "%d/%m"},
-        yaxis={**AXIS_X, "showgrid": True, "tickprefix": "R$", "autorange": True},
-    )
-    return fig
+
+    area   = base.mark_area(color="#D85A30", opacity=0.12, line=False)
+    line   = base.mark_line(color="#D85A30", strokeWidth=2.5, interpolate="monotone")
+    points = base.mark_circle(color="#D85A30", size=55, opacity=1)
+
+    return _configure((area + line + points).properties(height=330))
