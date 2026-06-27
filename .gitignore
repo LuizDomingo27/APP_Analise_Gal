@@ -159,6 +159,10 @@ venv.bak/
 **/env/
 .venv/
 **/.venv/
+.claude
+.claude/
+*.claude/
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -218,3 +222,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# SQLite WAL temporary files (gerados com PRAGMA journal_mode=WAL)
+*.db-wal
+*.db-shm

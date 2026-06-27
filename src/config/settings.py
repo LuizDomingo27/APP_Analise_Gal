@@ -8,6 +8,7 @@ from pathlib import Path
 _ROOT_DIR    = Path(__file__).resolve().parents[2]
 DATASET_DIR  = _ROOT_DIR / "dataset"
 BD_PRINCIPAL = DATASET_DIR / "bd_principal.xlsx"
+DB_PATH      = DATASET_DIR / "analise_gal.db"
 
 PAGE_CONFIG = {
     "page_title": "Análise Remontes",

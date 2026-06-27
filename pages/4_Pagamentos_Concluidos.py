@@ -27,7 +27,8 @@ st.set_page_config(
 
 from src.config.settings import COLS, COLORS
 from src.data.cobranca_history import HISTORY_LABELS, payment_punctuality
-from src.data.payment_history import BD_PAGAMENTOS, load_payments
+from src.data.payment_history import load_payments, generate_payments_xlsx_bytes
+from src.config.settings import DB_PATH
 
 # ── CSS global — mesma identidade visual das outras páginas ─────────────────
 st.markdown(
@@ -288,11 +289,11 @@ def main() -> None:
     if min_label in display_df.columns:
         display_df[min_label] = display_df[min_label].apply(lambda v: f"{float(v):,.2f}" if pd.notna(v) else "")
     if qty_label in display_df.columns:
-        display_df[qty_label] = display_df[qty_label].apply(lambda v: f"{int(v):,}" if pd.notna(v) else "")
+        display_df[qty_label] = display_df[qty_label].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
     if ord_label in display_df.columns:
-        display_df[ord_label] = display_df[ord_label].apply(lambda v: f"{int(v)}" if pd.notna(v) else "")
+        display_df[ord_label] = display_df[ord_label].apply(lambda v: f"{int(float(v))}" if pd.notna(v) else "")
     if "Real Cortado" in display_df.columns:
-        display_df["Real Cortado"] = display_df["Real Cortado"].apply(lambda v: f"{int(v):,}" if pd.notna(v) else "")
+        display_df["Real Cortado"] = display_df["Real Cortado"].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
 
     if situ_label in display_df.columns:
         def _situ_badge(s):
@@ -373,18 +374,18 @@ def main() -> None:
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
     btn_dl, _sp = st.columns([1, 3])
     with btn_dl:
-        if BD_PAGAMENTOS.exists():
-            with open(BD_PAGAMENTOS, "rb") as f:
-                st.download_button(
-                    label="📊  Baixar Excel Executivo",
-                    data=f.read(),
-                    file_name=f"pagamentos_concluidos_{date.today().isoformat()}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="dl_pagamentos_excel",
-                    use_container_width=True,
-                    help="Baixa o relatório executivo completo (todos os pagamentos, "
-                         "independente da pesquisa acima).",
-                )
+        _xlsx_bytes = generate_payments_xlsx_bytes() if df_pag is not None and not df_pag.empty else None
+        if _xlsx_bytes:
+            st.download_button(
+                label="📊  Baixar Excel Executivo",
+                data=_xlsx_bytes,
+                file_name=f"pagamentos_concluidos_{date.today().isoformat()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_pagamentos_excel",
+                use_container_width=True,
+                help="Baixa o relatório executivo completo (todos os pagamentos, "
+                     "independente da pesquisa acima).",
+            )
         else:
             st.button("📊  Baixar Excel Executivo", disabled=True, use_container_width=True)
 
@@ -393,8 +394,9 @@ def main() -> None:
         '<hr style="border-color:rgba(0,0,0,0.06);margin:16px 0">',
         unsafe_allow_html=True,
     )
-    ok_color = "#00E5A0" if BD_PAGAMENTOS.exists() else "#EF9F27"
-    ok_txt   = "bd_pagamentos.xlsx presente" if BD_PAGAMENTOS.exists() else "Arquivo ainda não criado"
+    _db_ok   = DB_PATH.exists()
+    ok_color = "#00E5A0" if _db_ok else "#EF9F27"
+    ok_txt   = "Banco SQLite presente" if _db_ok else "Banco ainda não criado"
     st.sidebar.markdown(
         f'<div style="font-size:10.5px;color:{ok_color};padding:6px 8px;'
         f'border-radius:6px;background:rgba(0,229,160,0.06);'

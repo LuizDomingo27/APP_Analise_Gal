@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Gerenciamento dos Pagamentos Concluídos — bd_pagamentos.xlsx.
-
-Cada lançamento de cobrança marcado como "Pago" na aba Histórico de
-Cobranças é removido de bd_cobranca.xlsx e passa a viver aqui, identificado
-pelo seu Código do Lançamento (que se torna o "Código do Pagamento").
+Gerenciamento dos Pagamentos Concluídos — tabela pagamentos_concluidos (SQLite).
 """
 
-import re as _re
+import io
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -16,7 +13,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from src.config.settings import COLS, DATASET_DIR
+from src.config.settings import COLS, DB_PATH, DATASET_DIR
+from src.data.database import create_tables, get_connection
+from src.data.github_sync import push_db_to_github
 from src.data.cobranca_history import (
     HISTORY_LABELS,
     _COL_WIDTHS,
@@ -24,9 +23,9 @@ from src.data.cobranca_history import (
     payment_punctuality,
 )
 
+# Legado: mantido para imports externos que ainda referenciam este símbolo
 BD_PAGAMENTOS = DATASET_DIR / "bd_pagamentos.xlsx"
 
-# ── Paleta — mesma identidade visual do histórico de cobranças ──────────────
 _PURPLE_DARK  = "1A1530"
 _PURPLE_MID   = "534AB7"
 _PURPLE_LIGHT = "EDE8FF"
@@ -37,96 +36,69 @@ _GREEN        = "1D9E75"
 _RED          = "C0392B"
 _AMBER        = "D8932E"
 
-_HEADER_OFFSET = 5   # linha 1 título, 2 subtítulo, 3 KPIs, 4 espaçador, 5 header
+_HEADER_OFFSET = 5
 
 
 def append_payments(df_rows: pd.DataFrame) -> None:
     """
-    Acrescenta linhas (já com STATUS="Pago") em bd_pagamentos.xlsx.
-    Acumula sem sobrescrever pagamentos anteriores.
+    Acrescenta linhas (já com STATUS='Pago') em pagamentos_concluidos.
+    Chamada por update_lancamento_status quando o status muda para 'Pago'
+    — o movimento é feito atomicamente dentro da mesma conexão lá,
+    então esta função é usada apenas por chamadas externas / migração.
     """
     DATASET_DIR.mkdir(parents=True, exist_ok=True)
+    create_tables()
 
-    if BD_PAGAMENTOS.exists():
-        df_existing = _read_payments_xlsx()
-        df_final    = pd.concat([df_existing, df_rows], ignore_index=True)
-    else:
-        df_final = df_rows.copy()
+    with get_connection() as conn:
+        df_rows.to_sql("pagamentos_concluidos", conn, if_exists="append", index=False)
+        conn.commit()
 
-    _write_payments_xlsx(df_final)
     st.cache_data.clear()
+    push_db_to_github(DB_PATH)
 
 
 @st.cache_data
 def load_payments() -> pd.DataFrame | None:
-    """Carrega o histórico completo de bd_pagamentos.xlsx. Retorna None se não existir."""
-    if not BD_PAGAMENTOS.exists():
+    """Carrega o histórico completo de pagamentos_concluidos. Retorna None se vazio."""
+    if not DB_PATH.exists():
         return None
-    return _read_payments_xlsx()
-
-
-# ── Privado — leitura ─────────────────────────────────────────────────────────
-
-def _read_payments_xlsx() -> pd.DataFrame:
-    """
-    Lê bd_pagamentos.xlsx pulando as linhas decorativas do cabeçalho.
-    """
-    df = pd.read_excel(BD_PAGAMENTOS, engine="openpyxl", header=_HEADER_OFFSET - 1)
-
-    _date_pat = _re.compile(r"^\d{2}/\d{2}/\d{4}$")
-    _date_col_matches = [c for c in df.columns if str(c).strip() in ("Data Cobrança", "Data Cobranca")]
-    filter_col = _date_col_matches[0] if _date_col_matches else df.columns[0]
-    df = df[df[filter_col].astype(str).str.match(_date_pat)]
-    df = df.reset_index(drop=True)
-
-    _label_to_internal = {
-        "Código":                  "COD_LANCAMENTO",
-        "Codigo":                  "COD_LANCAMENTO",
-        "Código do Pagamento":     "COD_LANCAMENTO",
-        "Data Cobranca":           "DATA_COBRANCA",
-        "Data Cobrança":           "DATA_COBRANCA",
-        "Data Vencimento":         "DATA_VENCIMENTO",
-        "Vencimento":              "DATA_VENCIMENTO",
-        "Data Pagamento":          "DATA_PAGAMENTO",
-        "Data de Pagamento":       "DATA_PAGAMENTO",
-        "CNPJ":                    "CNPJ_FORNECEDOR",
-        "Status":                  COLS["status"],
-        "STATUS_COBRANCA":         COLS["status"],
-        "OM":                      _SAVE_COLS[0],
-        "Data Prodção":            _SAVE_COLS[1],
-        "Data Producao":           _SAVE_COLS[1],
-        "Data Produção":           _SAVE_COLS[1],
-        "Fornecedor":              _SAVE_COLS[2],
-        "Qtd":                     _SAVE_COLS[3],
-        "Remonte / Defeito":       _SAVE_COLS[4],
-        "Real Cortado":            _SAVE_COLS[5],
-        "Min. Gerados":            _SAVE_COLS[6],
-        "Valor (R$)":              _SAVE_COLS[7],
-    }
-    df = df.rename(columns=_label_to_internal)
-    df = df.loc[:, ~df.columns.str.contains(r"\.\d+$", regex=True)]
-
-    if COLS["status"] not in df.columns:
-        df[COLS["status"]] = "Pago"
-    if "DATA_PAGAMENTO" not in df.columns:
-        df["DATA_PAGAMENTO"] = ""
-    else:
-        df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].fillna("").astype(str).str.strip()
-        df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].replace({"nan": "", "None": "", "NaT": ""})
-
+    create_tables()
+    with get_connection() as conn:
+        df = pd.read_sql("SELECT * FROM pagamentos_concluidos", conn)
+    if df.empty:
+        return None
+    df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].fillna("").astype(str).replace(
+        {"nan": "", "None": "", "NaT": ""}
+    )
     return df
 
 
-# ── Privado — escrita ─────────────────────────────────────────────────────────
+def generate_payments_xlsx_bytes() -> bytes | None:
+    """
+    Gera o xlsx executivo de pagamentos em memória e retorna os bytes.
+    Retorna None se não houver dados.
+    """
+    if not DB_PATH.exists():
+        return None
+    create_tables()
+    with get_connection() as conn:
+        df = pd.read_sql("SELECT * FROM pagamentos_concluidos", conn)
+    if df.empty:
+        return None
+    df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].fillna("").astype(str).replace(
+        {"nan": "", "None": "", "NaT": ""}
+    )
+    buf = io.BytesIO()
+    _write_payments_xlsx(df, buf)
+    return buf.getvalue()
 
-def _write_payments_xlsx(df: pd.DataFrame) -> None:
+
+# ── Privado — escrita xlsx ────────────────────────────────────────────────────
+
+def _write_payments_xlsx(df: pd.DataFrame, dest) -> None:
     """
-    Grava df em BD_PAGAMENTOS com formato executivo: título, subtítulo,
-    faixa de indicadores (KPIs) e tabela detalhada com agrupamento visual
-    por Código do Pagamento.
+    Grava df como xlsx executivo em dest (Path ou file-like / BytesIO).
     """
-    # Ordena por Data de Pagamento (mais recentes primeiro) — mais útil
-    # para um relatório executivo do que a ordem de inserção.
     _pag_parsed = pd.to_datetime(df.get("DATA_PAGAMENTO", ""), format="%d/%m/%Y", errors="coerce")
     df = df.assign(_ord=_pag_parsed).sort_values("_ord", ascending=False, na_position="last").drop(columns="_ord")
     df = df.reset_index(drop=True)
@@ -143,21 +115,21 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
 
     value_col_name  = COLS["value_brl"]
     status_col_name = COLS["status"]
-    cod_col_name     = "COD_LANCAMENTO"
+    cod_col_name    = "COD_LANCAMENTO"
 
-    total_value     = float(pd.to_numeric(df[value_col_name], errors="coerce").fillna(0).sum()) if value_col_name in df.columns else 0.0
-    n_lancamentos   = df[cod_col_name].nunique() if cod_col_name in df.columns else n_records
-    n_fornecedores  = df[COLS["supplier"]].nunique() if COLS["supplier"] in df.columns else 0
+    total_value    = float(pd.to_numeric(df[value_col_name], errors="coerce").fillna(0).sum()) if value_col_name in df.columns else 0.0
+    n_lancamentos  = df[cod_col_name].nunique() if cod_col_name in df.columns else n_records
+    n_fornecedores = df[COLS["supplier"]].nunique() if COLS["supplier"] in df.columns else 0
 
-    n_no_prazo  = 0
-    n_atraso    = 0
+    n_no_prazo = 0
+    n_atraso   = 0
     if "DATA_PAGAMENTO" in df.columns and "DATA_VENCIMENTO" in df.columns:
-        _seen_cods = set()
+        _seen = set()
         for _, r in df.iterrows():
             c = r.get(cod_col_name)
-            if c in _seen_cods:
+            if c in _seen:
                 continue
-            _seen_cods.add(c)
+            _seen.add(c)
             _, atrasado = payment_punctuality(r.get("DATA_PAGAMENTO"), r.get("DATA_VENCIMENTO"))
             if atrasado is True:
                 n_atraso += 1
@@ -173,7 +145,6 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
         thin_ = Side(style="thin",   color=_PURPLE_MID)
         return Border(left=thin_, right=thin_, top=thick, bottom=thick)
 
-    # ── Linha 1: título principal ─────────────────────────────────────────────
     ws.merge_cells(f"A1:{last_col}1")
     c = ws["A1"]
     c.value     = "PAGAMENTOS CONCLUÍDOS — RELATÓRIO EXECUTIVO"
@@ -182,7 +153,6 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
     c.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 34
 
-    # ── Linha 2: subtítulo ────────────────────────────────────────────────────
     ws.merge_cells(f"A2:{last_col}2")
     c = ws["A2"]
     c.value     = f"Gerado em: {today_br}  ·  Lançamentos pagos: {n_lancamentos}  ·  Itens: {n_records}"
@@ -191,7 +161,6 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
     c.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[2].height = 18
 
-    # ── Linha 3: faixa de indicadores (KPIs) ─────────────────────────────────
     kpis = [
         ("VALOR TOTAL PAGO", f"R$ {total_value:,.2f}", _GREEN),
         ("LANÇAMENTOS PAGOS", str(n_lancamentos), _PURPLE_MID),
@@ -199,37 +168,35 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
         ("NO PRAZO", str(n_no_prazo), _GREEN),
         ("COM ATRASO", str(n_atraso), _RED),
     ]
-    n_kpi = len(kpis)
+    n_kpi      = len(kpis)
     base_width = num_cols // n_kpi
     extra      = num_cols % n_kpi
     col_cursor = 1
     for i, (label, value, color) in enumerate(kpis):
-        span = base_width + (1 if i < extra else 0)
-        span = max(span, 1)
-        start_col = col_cursor
-        end_col   = min(col_cursor + span - 1, num_cols)
+        span       = base_width + (1 if i < extra else 0)
+        span       = max(span, 1)
+        start_col  = col_cursor
+        end_col    = min(col_cursor + span - 1, num_cols)
         col_cursor = end_col + 1
 
         start_letter = get_column_letter(start_col)
         end_letter   = get_column_letter(max(end_col, start_col))
         ws.merge_cells(f"{start_letter}3:{end_letter}3")
-        cell = ws[f"{start_letter}3"]
+        cell           = ws[f"{start_letter}3"]
         cell.value     = f"{label}:  {value}"
         cell.font      = Font(name="Calibri", bold=True, size=10, color=color)
         cell.fill      = PatternFill("solid", fgColor=_PURPLE_LIGHT)
         cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[3].height = 22
 
-    # ── Linha 4: espaçador ────────────────────────────────────────────────────
     ws.row_dimensions[4].height = 6
 
-    # ── Linha 5: cabeçalho das colunas ───────────────────────────────────────
     header_row = _HEADER_OFFSET
     col_labels = dict(HISTORY_LABELS)
     col_labels["COD_LANCAMENTO"] = "Código do Pagamento"
 
     for idx, col in enumerate(all_cols, start=1):
-        cell = ws.cell(row=header_row, column=idx)
+        cell           = ws.cell(row=header_row, column=idx)
         cell.value     = col_labels.get(col, col)
         cell.font      = Font(name="Calibri", bold=True, size=10, color=_WHITE)
         cell.fill      = PatternFill("solid", fgColor=_PURPLE_MID)
@@ -237,7 +204,6 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
         cell.border    = header_border()
     ws.row_dimensions[header_row].height = 26
 
-    # ── Linhas de dados — faixa alternada por GRUPO (Código), não por linha ──
     last_cod    = None
     band_toggle = False
 
@@ -249,7 +215,7 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
         fill_color = _PURPLE_LIGHT if band_toggle else _WHITE
 
         for col_idx, col in enumerate(all_cols, start=1):
-            cell = ws.cell(row=row_idx, column=col_idx)
+            cell        = ws.cell(row=row_idx, column=col_idx)
             cell.border = thin()
 
             val = row.get(col)
@@ -264,7 +230,7 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
                 continue
 
             if col == value_col_name:
-                fval = float(val) if val != "" else 0.0
+                fval               = float(val) if val != "" else 0.0
                 cell.value         = fval
                 cell.number_format = 'R$ #,##0.00'
                 cell.fill          = PatternFill("solid", fgColor=fill_color)
@@ -304,21 +270,19 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
 
         ws.row_dimensions[row_idx].height = 17
 
-    # ── Linha de total ────────────────────────────────────────────────────────
     total_row   = header_row + n_records + 1
-    val_col_idx = (all_cols.index(value_col_name) + 1
-                   if value_col_name in all_cols else num_cols)
+    val_col_idx = (all_cols.index(value_col_name) + 1 if value_col_name in all_cols else num_cols)
     merge_end   = get_column_letter(max(val_col_idx - 1, 1))
 
     ws.merge_cells(f"A{total_row}:{merge_end}{total_row}")
-    lc = ws[f"A{total_row}"]
+    lc           = ws[f"A{total_row}"]
     lc.value     = "TOTAL PAGO"
     lc.font      = Font(name="Calibri", bold=True, size=10, color=_WHITE)
     lc.fill      = PatternFill("solid", fgColor=_GREEN)
     lc.alignment = Alignment(horizontal="right", vertical="center")
     lc.border    = thin(_GREEN)
 
-    tc = ws.cell(row=total_row, column=val_col_idx)
+    tc               = ws.cell(row=total_row, column=val_col_idx)
     tc.value         = total_value
     tc.number_format = 'R$ #,##0.00'
     tc.font          = Font(name="Calibri", bold=True, size=11, color=_WHITE)
@@ -328,15 +292,14 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
     ws.row_dimensions[total_row].height = 22
 
     for col_idx in range(val_col_idx + 1, num_cols + 1):
-        c = ws.cell(row=total_row, column=col_idx)
+        c        = ws.cell(row=total_row, column=col_idx)
         c.fill   = PatternFill("solid", fgColor=_GREEN)
         c.border = thin(_GREEN)
 
-    # ── Rodapé ────────────────────────────────────────────────────────────────
     footer_row = total_row + 2
     ws.merge_cells(f"A{footer_row}:{last_col}{footer_row}")
-    c = ws[f"A{footer_row}"]
-    c.value = (
+    c           = ws[f"A{footer_row}"]
+    c.value     = (
         "Documento gerado automaticamente pelo sistema de Controle de Qualidade. "
         "Cada Código do Pagamento identifica um lançamento de cobrança pago integralmente."
     )
@@ -344,11 +307,9 @@ def _write_payments_xlsx(df: pd.DataFrame) -> None:
     c.alignment = Alignment(horizontal="center", wrap_text=True)
     ws.row_dimensions[footer_row].height = 28
 
-    # ── Larguras de coluna ────────────────────────────────────────────────────
     for idx, col in enumerate(all_cols, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = _COL_WIDTHS.get(col, 16)
 
-    # ── Freeze pane abaixo do cabeçalho de colunas ───────────────────────────
     ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
 
-    wb.save(BD_PAGAMENTOS)
+    wb.save(dest)

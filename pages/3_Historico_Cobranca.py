@@ -32,14 +32,15 @@ st.set_page_config(
 
 from src.config.settings import COLS, COLORS
 from src.data.cobranca_history import (
-    BD_COBRANCA,
     HISTORY_LABELS,
     STATUS_OPTIONS,
     load_history,
     update_lancamento_status,
     migrate_paid_to_payments,
     payment_punctuality,
+    generate_history_xlsx_bytes,
 )
+from src.config.settings import DB_PATH
 import base64
 import streamlit.components.v1 as components
 from src.ui.preview import _generate_historico_html
@@ -427,10 +428,10 @@ def main() -> None:
     # Formatação dos dados para exibição na tabela HTML
     display_df[val_label] = display_df[val_label].apply(lambda v: f"R$ {float(v):,.2f}" if pd.notna(v) else "")
     display_df[min_label] = display_df[min_label].apply(lambda v: f"{float(v):,.2f}" if pd.notna(v) else "")
-    display_df[qty_label] = display_df[qty_label].apply(lambda v: f"{int(v):,}" if pd.notna(v) else "")
-    display_df[ord_label] = display_df[ord_label].apply(lambda v: f"{int(v)}" if pd.notna(v) else "")
+    display_df[qty_label] = display_df[qty_label].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
+    display_df[ord_label] = display_df[ord_label].apply(lambda v: f"{int(float(v))}" if pd.notna(v) else "")
     if "Real Cortado" in display_df.columns:
-        display_df["Real Cortado"] = display_df["Real Cortado"].apply(lambda v: f"{int(v):,}" if pd.notna(v) else "")
+        display_df["Real Cortado"] = display_df["Real Cortado"].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
 
     _status_raw = (
         display_df[status_label].astype(str).str.strip()
@@ -646,16 +647,16 @@ def main() -> None:
 
     # ── Botões de exportação ─────────────────────────────────────────────────
     with btn_dl:
-        if BD_COBRANCA.exists():
-            with open(BD_COBRANCA, "rb") as f:
-                st.download_button(
-                    label="⬇️  Baixar Excel",
-                    data=f.read(),
-                    file_name=f"bd_cobranca_{date.today().isoformat()}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="dl_hist_excel",
-                    use_container_width=True,
-                )
+        _xlsx_bytes = generate_history_xlsx_bytes() if n_records > 0 else None
+        if _xlsx_bytes:
+            st.download_button(
+                label="⬇️  Baixar Excel",
+                data=_xlsx_bytes,
+                file_name=f"bd_cobranca_{date.today().isoformat()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_hist_excel",
+                use_container_width=True,
+            )
         else:
             st.button("⬇️  Baixar Excel", disabled=True, use_container_width=True)
 
@@ -731,8 +732,9 @@ def main() -> None:
         '<hr style="border-color:rgba(0,0,0,0.06);margin:16px 0">',
         unsafe_allow_html=True,
     )
-    ok_color = "#00E5A0" if BD_COBRANCA.exists() else "#EF9F27"
-    ok_txt   = "bd_cobranca.xlsx presente" if BD_COBRANCA.exists() else "Arquivo ainda não criado"
+    _db_ok   = DB_PATH.exists()
+    ok_color = "#00E5A0" if _db_ok else "#EF9F27"
+    ok_txt   = "Banco SQLite presente" if _db_ok else "Banco ainda não criado"
     st.sidebar.markdown(
         f'<div style="font-size:10.5px;color:{ok_color};padding:6px 8px;'
         f'border-radius:6px;background:rgba(0,229,160,0.06);'

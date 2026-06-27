@@ -2,54 +2,53 @@
 Data loading layer.
 
 Hierarquia de carregamento:
-  1. load_data_from_disk()   → lê bd_principal.xlsx diretamente do disco (startup normal)
-  2. append_new_data()       → valida + deduplica + salva registros novos na base existente
-  3. load_data_from_upload() → usada apenas quando bd_principal.xlsx ainda não existe (1ª vez)
+  1. load_data_from_disk()   → lê registros_defeitos do SQLite (startup normal)
+  2. append_new_data()       → valida + deduplica + insere registros no SQLite
+  3. load_data_from_upload() → fallback sem persistência (primeira importação)
 """
 
 import io
-import shutil
-from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-from src.config.settings import COLS, BD_PRINCIPAL, DATASET_DIR
+from src.config.settings import COLS, DB_PATH, DATASET_DIR
+from src.data.database import create_tables, get_connection
+from src.data.github_sync import push_db_to_github
 
 
-# ── Público: carregamento do disco ────────────────────────────────────────────
+# ── Público: carregamento do banco ────────────────────────────────────────────
 
 @st.cache_data
 def load_data_from_disk() -> pd.DataFrame | None:
     """
-    Lê bd_principal.xlsx da pasta dataset/.
-    Retorna DataFrame limpo, ou None se o arquivo não existir.
+    Lê todos os registros da tabela registros_defeitos do SQLite.
+    Retorna DataFrame limpo, ou None se o banco não existir ou estiver vazio.
     """
-    if not BD_PRINCIPAL.exists():
+    if not DB_PATH.exists():
         return None
     try:
-        df = pd.read_excel(BD_PRINCIPAL, engine="openpyxl")
-        df = _validate(df)
+        create_tables()
+        with get_connection() as conn:
+            df = pd.read_sql("SELECT * FROM registros_defeitos", conn)
+        if df.empty:
+            return None
         df = _cast_types(df)
         return df
-    except ValueError as exc:
-        st.error(f"❌ Base principal corrompida: {exc}")
-        return None
     except Exception as exc:
-        st.error(f"❌ Erro ao carregar base principal: {exc}")
+        st.error(f"❌ Erro ao carregar base: {exc}")
         return None
 
 
 def append_new_data(uploaded_file) -> dict | None:
     """
-    Recebe um UploadedFile com novos registros, valida, deduplica e
-    faz append na bd_principal.xlsx.
+    Recebe um UploadedFile com novos registros, valida, deduplica por data e
+    insere os registros novos na tabela registros_defeitos. Sincroniza com GitHub.
 
     Retorna dict com:
-        added      → int  — registros novos gravados
-        duplicates → int  — registros ignorados por já existirem
-        total      → int  — total de registros após merge
+        added      → int — registros novos inseridos
+        duplicates → int — registros ignorados (data já existia na base)
+        total      → int — total de registros na base após a inserção
     Ou None em caso de erro.
     """
     try:
@@ -64,43 +63,45 @@ def append_new_data(uploaded_file) -> dict | None:
         st.error(f"❌ Erro ao ler arquivo: {exc}")
         return None
 
-    # Garante que a pasta dataset/ existe
     DATASET_DIR.mkdir(parents=True, exist_ok=True)
+    create_tables()
 
     date_col = COLS["date"]
 
-    # ── Caso: base ainda não existe → primeira carga ──────────────────────────
-    if not BD_PRINCIPAL.exists():
-        _save_to_disk(df_new)
-        load_data_from_disk.clear()
-        return {"added": len(df_new), "duplicates": 0, "total": len(df_new)}
+    with get_connection() as conn:
+        rows = conn.execute(
+            'SELECT DISTINCT "DATA DE PRODUÇÃO ACABAMENTO" FROM registros_defeitos'
+        ).fetchall()
+        existing_dates = {r[0] for r in rows if r[0]}
 
-    # ── Caso: base já existe → backup + merge + deduplicação ─────────────────
-    df_existing = pd.read_excel(BD_PRINCIPAL, engine="openpyxl")
-    df_existing = _cast_types(df_existing)
+        new_dates_str = df_new[date_col].dt.strftime("%Y-%m-%d")
+        mask_new      = ~new_dates_str.isin(existing_dates)
+        df_to_add     = df_new[mask_new].copy()
+        duplicates    = int((~mask_new).sum())
 
-    _backup()
+        if not df_to_add.empty:
+            df_to_add[date_col] = df_to_add[date_col].dt.strftime("%Y-%m-%d")
+            df_to_add.to_sql("registros_defeitos", conn, if_exists="append", index=False)
+            conn.commit()
 
-    existing_dates = set(df_existing[date_col].dt.date)
-    mask_new      = ~df_new[date_col].dt.date.isin(existing_dates)
-    df_to_add     = df_new[mask_new]
-    duplicates    = int((~mask_new).sum())
+        total = conn.execute(
+            "SELECT COUNT(*) FROM registros_defeitos"
+        ).fetchone()[0]
 
-    df_merged = pd.concat([df_existing, df_to_add], ignore_index=True)
-    _save_to_disk(df_merged)
     load_data_from_disk.clear()
+    push_db_to_github(DB_PATH)
 
     return {
         "added":      int(len(df_to_add)),
         "duplicates": duplicates,
-        "total":      len(df_merged),
+        "total":      total,
     }
 
 
 def load_data_from_upload(uploaded_file) -> pd.DataFrame | None:
     """
-    Lê um UploadedFile e retorna DataFrame limpo.
-    Mantida como fallback e para uso direto no primeiro carregamento.
+    Lê um UploadedFile e retorna DataFrame limpo sem persistir.
+    Mantida como fallback.
     """
     try:
         raw_bytes = uploaded_file.read()
@@ -138,17 +139,3 @@ def _cast_types(df: pd.DataFrame) -> pd.DataFrame:
     df[COLS["location"]]    = df[COLS["location"]].astype(str).str.strip()
     df.dropna(subset=[COLS["date"]], inplace=True)
     return df
-
-
-def _save_to_disk(df: pd.DataFrame) -> None:
-    """Salva o DataFrame em bd_principal.xlsx."""
-    DATASET_DIR.mkdir(parents=True, exist_ok=True)
-    df.to_excel(BD_PRINCIPAL, index=False, engine="openpyxl")
-
-
-def _backup() -> None:
-    """Cria cópia de segurança antes de qualquer operação de escrita."""
-    if not BD_PRINCIPAL.exists():
-        return
-    backup = DATASET_DIR / "bd_principal_backup.xlsx"
-    shutil.copy2(BD_PRINCIPAL, backup)

@@ -56,7 +56,7 @@ def _aggregate(df: pd.DataFrame) -> pd.DataFrame:
     result["Data Fim"]           = g[COLS["date"]].max().dt.strftime("%d/%m/%Y")
     result["OM (únicos)"]        = g[COLS["order"]].nunique()
     result["Total de Ordem"]     = g[COLS["order"]].count()
-    result["Defeito Principal"]  = df.groupby(COLS["supplier"]).apply(top_defect)
+    result["Defeito Principal"]  = df.groupby(COLS["supplier"]).apply(top_defect, include_groups=False)
     result["Total Defeitos"]     = g[COLS["defect"]].count()
     result["Total Peças"]        = g[COLS["quantity"]].sum()
     result["Total Minutos"]      = g[COLS["minutes"]].sum().round(2)
