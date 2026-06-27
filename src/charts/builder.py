@@ -26,6 +26,11 @@ def donut_defect_type(df: pd.DataFrame) -> alt.Chart:
     d["_name_shown"] = d.apply(lambda r: r["_name"] if r["_pct"] >= 3 else "", axis=1)
     d["_pct_shown"] = d.apply(lambda r: r["_pct_label"] if r["_pct"] >= 3 else "", axis=1)
 
+    domain_order = list(DEFECT_COLORS.keys())
+    sort_map = {v: i for i, v in enumerate(domain_order)}
+    d["_sort_key"] = d[COLS["defect"]].map(sort_map).fillna(len(domain_order))
+    d = d.sort_values("_sort_key").reset_index(drop=True)
+
     theta = alt.Theta(field=COLS["quantity"], type="quantitative", stack=True)
     color_enc = alt.Color(
         field=COLS["defect"],
@@ -37,12 +42,15 @@ def donut_defect_type(df: pd.DataFrame) -> alt.Chart:
         legend=None,
     )
 
+    order_enc = alt.Order(field="_sort_key", sort="ascending")
+
     arc = (
         alt.Chart(d)
         .mark_arc(innerRadius=110, outerRadius=185, stroke="#FAFCFB", strokeWidth=2)
         .encode(
             theta=theta,
             color=color_enc,
+            order=order_enc,
             tooltip=[
                 alt.Tooltip(field=COLS["defect"], type="nominal", title="Tipo"),
                 alt.Tooltip(field=COLS["quantity"], type="quantitative", title="Qtd", format=",d"),
@@ -55,13 +63,13 @@ def donut_defect_type(df: pd.DataFrame) -> alt.Chart:
     label_name = (
         alt.Chart(d)
         .mark_text(radius=220, fontSize=11, color="#0D1B17", fontWeight="bold", dy=-8)
-        .encode(theta=theta, text=alt.Text(field="_name_shown"))
+        .encode(theta=theta, order=order_enc, text=alt.Text(field="_name_shown"))
     )
 
     label_pct = (
         alt.Chart(d)
         .mark_text(radius=220, fontSize=10, color="#4A5752", dy=8)
-        .encode(theta=theta, text=alt.Text(field="_pct_shown"))
+        .encode(theta=theta, order=order_enc, text=alt.Text(field="_pct_shown"))
     )
 
     center_total = (
