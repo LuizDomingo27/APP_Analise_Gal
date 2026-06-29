@@ -19,7 +19,13 @@ def push_db_to_github(db_path: Path) -> bool:
         token     = st.secrets.get("GITHUB_TOKEN")
         repo_name = st.secrets.get("GITHUB_REPO")
         if not token or not repo_name:
-            return False  # secrets absent — skip silently (local dev)
+            # secrets ausentes: nada é commitado. Avisa para não passar
+            # despercebido (no Cloud isso significa que os dados não persistem).
+            st.warning(
+                "⚠️ Sincronização desativada: secrets GITHUB_TOKEN/GITHUB_REPO "
+                "não configurados. As alterações não serão salvas no GitHub."
+            )
+            return False
 
         from github import Github
         g    = Github(token)
@@ -43,6 +49,7 @@ def push_db_to_github(db_path: Path) -> bool:
                 "chore: cria banco de dados SQLite [auto]",
                 content,
             )
+        st.toast("✅ Sincronizado com GitHub", icon="✅")
         return True
 
     except Exception as exc:

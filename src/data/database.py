@@ -10,10 +10,17 @@ from src.config.settings import DB_PATH, DATASET_DIR
 
 @contextmanager
 def get_connection():
-    """Yields a sqlite3 connection with WAL journal mode enabled."""
+    """
+    Yields a sqlite3 connection in DELETE journal mode.
+
+    DELETE mode (o padrão) grava sempre no próprio arquivo analise_gal.db,
+    sem arquivos auxiliares -wal/-shm. Isso é essencial aqui porque o banco
+    é commitado no GitHub: em modo WAL as gravações ficam no sidecar -wal
+    (ignorado no .gitignore) e o push enviaria um .db sem os dados novos.
+    """
     DATASET_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA journal_mode=DELETE")
     try:
         yield conn
     finally:
