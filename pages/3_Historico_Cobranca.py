@@ -137,15 +137,15 @@ def _kpi_card(col, icon: str, label: str, value: str, accent: str) -> None:
                 border: 1px solid {accent}40;
                 border-top: 2px solid {accent};
                 border-radius: 12px;
-                padding: 1rem 1.2rem 0.9rem;
+                padding: 0.9rem 0.75rem 0.8rem;
                 box-shadow: 0 0 22px {accent}18, 0 2px 8px rgba(0,0,0,0.35);
             ">
-                <div style="font-size:10px; color:#0D1B17;
-                            text-transform:uppercase; letter-spacing:0.9px;
+                <div style="font-size:9.5px; color:#0D1B17;
+                            text-transform:uppercase; letter-spacing:0.6px;
                             margin-bottom:6px; font-weight:600">
                     <span style="color:{accent}; margin-right:5px">{icon}</span>{label}
                 </div>
-                <div style="font-size:22px; font-weight:700; color:#0D1B17;
+                <div style="font-size:19px; font-weight:700; color:#0D1B17;
                             letter-spacing:-0.4px; white-space:nowrap;
                             overflow:hidden; text-overflow:ellipsis">
                     {value}
@@ -362,6 +362,10 @@ def main() -> None:
     total_minutes = df_filtered[min_label].sum() if min_label in df_filtered.columns else 0.0
     total_pieces  = int(df_filtered[qty_label].sum()) if qty_label in df_filtered.columns else 0
     n_orders      = df_filtered[ord_label].nunique() if ord_label in df_filtered.columns else 0
+    # Cobranças únicas: contadas pelo Código de Lançamento — um mesmo CNPJ pode
+    # ter mais de uma cobrança (cada uma com seu Código), portanto contar por
+    # código evita duplicar e reflete o nº real de cobranças realizadas.
+    n_cobrancas   = df_filtered[cod_label].nunique() if cod_label in df_filtered.columns else 0
     n_records     = len(df_filtered)
 
     totals = dict(
@@ -370,15 +374,17 @@ def main() -> None:
         total_value=total_value,
         total_pieces=total_pieces,
         n_orders=n_orders,
+        n_cobrancas=n_cobrancas,
     )
 
-    # ── 5 Cards KPI ───────────────────────────────────────────────────────────
-    c1, c2, c3, c4, c5 = st.columns(5)
+    # ── 6 Cards KPI ───────────────────────────────────────────────────────────
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
     _kpi_card(c1, "🧵", "PEÇAS COM DEFEITO",    f"{total_pieces:,}",         "#0F86A3")
     _kpi_card(c2, "📋", "TOTAL DEFEITOS",        str(n_records),              "#00B884")
     _kpi_card(c3, "⏱️", "TOTAL MINUTOS",         f"{total_minutes:,.0f} min", "#00E5A0")
     _kpi_card(c4, "💰", "VALOR TOTAL",           f"R$ {total_value:,.2f}",    "#E24B4A")
     _kpi_card(c5, "📦", "ORDENS ÚNICAS (OM)",    str(n_orders),               "#EF9F27")
+    _kpi_card(c6, "🧾", "COBRANÇAS REALIZADAS",  str(n_cobrancas),            "#7B5EA7")
 
     st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 
