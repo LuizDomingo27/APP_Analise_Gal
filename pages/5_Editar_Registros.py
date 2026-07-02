@@ -21,6 +21,7 @@ st.set_page_config(
 
 from src.config.settings import COLORS
 from src.ui.records_editor import render_records_editor_page
+from src.auth.session import require_login, render_user_sidebar
 
 # CSS consistente com a identidade visual do app principal
 st.markdown(
@@ -41,6 +42,40 @@ st.markdown(
         color: #4A5752 !important;
         font-size: 13px !important;
     }
+    /* ── Inputs / Select / Multiselect / DateInput / NumberInput / TextArea ── */
+    .stTextInput input, .stNumberInput input, .stDateInput input,
+    .stTextArea textarea, .stSelectbox [data-baseweb="select"] > div,
+    .stMultiSelect [data-baseweb="select"] > div,
+    [data-baseweb="input"], [data-baseweb="select"] {
+        background: #FFFFFF !important;
+        color: #0D1B17 !important;
+        border: 1px solid rgba(0,184,132,0.35) !important;
+        border-radius: 8px !important;
+    }
+    .stTextInput input:hover, .stNumberInput input:hover, .stDateInput input:hover,
+    .stSelectbox [data-baseweb="select"] > div:hover,
+    .stMultiSelect [data-baseweb="select"] > div:hover {
+        border-color:#0D1B17 !important;
+        box-shadow: 0 0 0 2px rgba(0,229,160,0.15) !important;
+    }
+    .stTextInput input:focus, .stNumberInput input:focus, .stDateInput input:focus,
+    .stTextArea textarea:focus {
+        border-color:#0D1B17 !important;
+        box-shadow: 0 0 0 2px rgba(0,229,160,0.25) !important;
+        outline: none !important;
+    }
+    /* Dropdown menu (BaseWeb popover) */
+    [data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"] {
+        background: #FFFFFF !important;
+        color: #0D1B17 !important;
+        border: 1px solid rgba(0,184,132,0.25) !important;
+    }
+    [data-baseweb="menu"] li, [role="option"] { color: #0D1B17 !important; background: #FFFFFF !important; }
+    [data-baseweb="menu"] li:hover, [role="option"]:hover,
+    [role="option"][aria-selected="true"] { background: rgba(0,229,160,0.15) !important; color: #0D1B17 !important; }
+    /* SVG icons inside inputs (chevrons, calendar, clear) */
+    [data-baseweb="select"] svg, [data-baseweb="input"] svg,
+    .stDateInput svg { fill: #00B884 !important; color:#0D1B17 !important; }
     .stButton > button {
         background: rgba(0,229,160,0.15) !important;
         color:#00805C !important;
@@ -97,6 +132,9 @@ def _render_no_data_message() -> None:
 
 
 def main() -> None:
+    require_login()
+    render_user_sidebar()
+
     if "df" not in st.session_state:
         _render_no_data_message()
         return

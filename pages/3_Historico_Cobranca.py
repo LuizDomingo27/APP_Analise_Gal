@@ -44,6 +44,7 @@ from src.config.settings import DB_PATH
 import base64
 import streamlit.components.v1 as components
 from src.ui.preview import _generate_historico_html
+from src.auth.session import require_login, render_user_sidebar
 # Force reload comment
 
 # ── Migra cobranças já pagas (lançadas antes da página Pagamentos
@@ -166,6 +167,9 @@ def _kpi_card(col, icon: str, label: str, value: str, accent: str) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main() -> None:
+    require_login()
+    render_user_sidebar()
+
     # ── Cabeçalho ─────────────────────────────────────────────────────────────
     st.markdown(
         f"""

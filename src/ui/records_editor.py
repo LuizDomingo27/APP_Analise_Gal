@@ -324,75 +324,97 @@ def _render_individual_edit_tab() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Painel de Edição — mesmo layout de "Atualizar Status de Lançamento" ──
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    with st.expander("📝 Editar Registro Selecionado", expanded=True):
-        record_opts = [
-            (
-                f"OM {row[COLS['order']]} — {row[COLS['supplier']]} — "
-                f"{row[COLS['date']].strftime('%d/%m/%Y')} — R$ {row[COLS['value_brl']]:,.2f}",
-                int(row["_rowid"]),
-            )
-            for _, row in df_results.iterrows()
-        ]
+    # ── Painel de Edição — formulário estruturado por seções ─────────────────
+    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+    _render_section_label("📝 Editar Registro Selecionado")
 
-        selected_label, selected_rowid = st.selectbox(
-            "Selecionar Registro",
-            options=record_opts,
-            format_func=lambda x: x[0],
-            key="select_record_to_edit",
+    record_opts = [
+        (
+            f"OM {row[COLS['order']]} — {row[COLS['supplier']]} — "
+            f"{row[COLS['date']].strftime('%d/%m/%Y')} — R$ {row[COLS['value_brl']]:,.2f}",
+            int(row["_rowid"]),
         )
+        for _, row in df_results.iterrows()
+    ]
 
-        record = df_results.loc[df_results["_rowid"] == selected_rowid].iloc[0]
+    selected_label, selected_rowid = st.selectbox(
+        "Selecionar Registro",
+        options=record_opts,
+        format_func=lambda x: x[0],
+        key="select_record_to_edit",
+    )
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            new_supplier = st.text_input(
-                "Fornecedor", value=str(record[COLS["supplier"]]), key=f"edit_supplier_{selected_rowid}"
-            )
-            new_material = st.text_input(
-                "Material", value=str(record[COLS["material"]]), key=f"edit_material_{selected_rowid}"
-            )
-        with col2:
-            new_location = st.text_input(
-                "Local", value=str(record[COLS["location"]]), key=f"edit_location_{selected_rowid}"
-            )
-            new_defect = st.text_input(
-                "Remonte / Tipo de Defeito", value=str(record[COLS["defect"]]), key=f"edit_defect_{selected_rowid}"
-            )
-        with col3:
-            new_order = st.text_input(
-                "OM", value=str(record[COLS["order"]]), key=f"edit_order_{selected_rowid}"
-            )
-            new_date = st.date_input(
-                "Data de Produção",
-                value=record[COLS["date"]].date(),
-                format="DD/MM/YYYY",
-                key=f"edit_date_{selected_rowid}",
+    record = df_results.loc[df_results["_rowid"] == selected_rowid].iloc[0]
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    _render_edit_form_css(f"edit_form_card_{selected_rowid}")
+
+    with st.container(key=f"edit_form_card_{selected_rowid}"):
+        with st.form(key=f"edit_form_{selected_rowid}", border=False):
+            _render_form_group_label("✦ Identificação")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                new_order = st.text_input(
+                    "🏷️ OM", value=str(record[COLS["order"]]), key=f"edit_order_{selected_rowid}"
+                )
+            with col2:
+                new_date = st.date_input(
+                    "📅 Data de Produção",
+                    value=record[COLS["date"]].date(),
+                    format="DD/MM/YYYY",
+                    key=f"edit_date_{selected_rowid}",
+                )
+            with col3:
+                new_supplier = st.text_input(
+                    "🏭 Fornecedor", value=str(record[COLS["supplier"]]), key=f"edit_supplier_{selected_rowid}"
+                )
+
+            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            _render_form_divider()
+            _render_form_group_label("✦ Defeito")
+            col4, col5, col6 = st.columns(3)
+            with col4:
+                new_material = st.text_input(
+                    "🧵 Material", value=str(record[COLS["material"]]), key=f"edit_material_{selected_rowid}"
+                )
+            with col5:
+                new_location = st.text_input(
+                    "📍 Local", value=str(record[COLS["location"]]), key=f"edit_location_{selected_rowid}"
+                )
+            with col6:
+                new_defect = st.text_input(
+                    "⚠️ Remonte / Tipo de Defeito", value=str(record[COLS["defect"]]), key=f"edit_defect_{selected_rowid}"
+                )
+
+            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            _render_form_divider()
+            _render_form_group_label("✦ Métricas")
+            col7, col8, col9, col10 = st.columns(4)
+            with col7:
+                new_qty = st.number_input(
+                    "🔢 Qtd", value=int(record[COLS["quantity"]]), min_value=0, step=1, key=f"edit_qty_{selected_rowid}"
+                )
+            with col8:
+                new_real_cut = st.text_input(
+                    "✂️ Rel. Cortado", value=str(record[COLS["real_cut"]]), key=f"edit_realcut_{selected_rowid}"
+                )
+            with col9:
+                new_minutes = st.number_input(
+                    "⏱️ Min. Gerados", value=float(record[COLS["minutes"]]), min_value=0.0, step=0.1,
+                    format="%.2f", key=f"edit_minutes_{selected_rowid}",
+                )
+            with col10:
+                new_value_brl = st.number_input(
+                    "💰 Valor (R$)", value=float(record[COLS["value_brl"]]), min_value=0.0, step=0.01,
+                    format="%.2f", key=f"edit_value_{selected_rowid}",
+                )
+
+            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+            submitted = st.form_submit_button(
+                "💾 Salvar Alteração", type="primary", use_container_width=True,
             )
 
-        col4, col5, col6, col7 = st.columns(4)
-        with col4:
-            new_qty = st.number_input(
-                "Qtd", value=int(record[COLS["quantity"]]), min_value=0, step=1, key=f"edit_qty_{selected_rowid}"
-            )
-        with col5:
-            new_real_cut = st.text_input(
-                "Rel. Cortado", value=str(record[COLS["real_cut"]]), key=f"edit_realcut_{selected_rowid}"
-            )
-        with col6:
-            new_minutes = st.number_input(
-                "Min. Gerados", value=float(record[COLS["minutes"]]), min_value=0.0, step=0.1,
-                format="%.2f", key=f"edit_minutes_{selected_rowid}",
-            )
-        with col7:
-            new_value_brl = st.number_input(
-                "Valor (R$)", value=float(record[COLS["value_brl"]]), min_value=0.0, step=0.01,
-                format="%.2f", key=f"edit_value_{selected_rowid}",
-            )
-
-        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-        if st.button("💾 Salvar Alteração", type="primary", key=f"edit_save_{selected_rowid}"):
+        if submitted:
             updates = {}
             if new_supplier.strip() != str(record[COLS["supplier"]]):
                 updates[COLS["supplier"]] = new_supplier.strip()
@@ -426,3 +448,61 @@ def _render_individual_edit_tab() -> None:
                     st.rerun()
                 else:
                     st.error("Não foi possível salvar a alteração.")
+
+
+def _render_section_label(text: str) -> None:
+    st.markdown(
+        f"""
+        <p style="font-size:11px;color:{COLORS['text_subtle']};
+                  text-transform:uppercase;letter-spacing:0.7px;margin:0 0 8px">
+            {text}
+        </p>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_form_group_label(text: str) -> None:
+    st.markdown(
+        f"""
+        <p style="font-size:10px;color:{COLORS['primary']};font-weight:700;
+                  text-transform:uppercase;letter-spacing:0.8px;margin:0 0 10px">
+            {text}
+        </p>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_form_divider() -> None:
+    st.markdown(
+        "<hr style='margin:2px 0 14px;border:none;border-top:1px solid rgba(0,0,0,0.07)'>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_edit_form_css(container_key: str) -> None:
+    st.markdown(
+        f"""
+        <style>
+        div[class*="st-key-{container_key}"] {{
+            background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%);
+            border: 1px solid rgba(0,229,160,0.30);
+            border-top: 3px solid #00B884;
+            border-radius: 14px;
+            padding: 20px 22px 6px;
+            box-shadow: 0 0 24px rgba(0,229,160,0.08), 0 2px 10px rgba(0,0,0,0.04);
+        }}
+        div[class*="st-key-{container_key}"] [data-testid="stForm"] {{
+            border: none;
+            padding: 0;
+        }}
+        div[class*="st-key-{container_key}"] label p {{
+            font-size: 12px !important;
+            font-weight: 600 !important;
+            color: {COLORS['text_muted']} !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )

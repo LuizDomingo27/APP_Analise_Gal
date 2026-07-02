@@ -23,6 +23,7 @@ st.set_page_config(
 # Importacoes internas (apos set_page_config)
 from src.config.settings import COLORS
 from src.ui.cobranca import render_cobranca_page
+from src.auth.session import require_login, render_user_sidebar
 
 # CSS consistente com a identidade visual do app principal
 st.markdown(
@@ -136,6 +137,9 @@ def _render_sidebar_info(total_records: int) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    require_login()
+    render_user_sidebar()
+
     if "df" not in st.session_state:
         _render_no_data_message()
         return

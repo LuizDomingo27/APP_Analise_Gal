@@ -250,15 +250,19 @@ def remove_supplier_from_df(
     supplier: str,
     supplier_col: str,
     reference_date: date | None = None,
+    reference_date_end: date | None = None,
 ) -> None:
     """
     Remove os registros do fornecedor da tabela registros_defeitos e
     atualiza o session_state.
 
     Quando `reference_date` é informado, remove apenas os registros desse
-    fornecedor cuja data de produção seja igual à data de referência
-    (cobrança lançada por data). Quando omitido, remove todos os registros
-    do fornecedor (comportamento legado).
+    fornecedor cuja data de produção esteja dentro do intervalo
+    [reference_date, reference_date_end] (cobrança lançada por período).
+    Se `reference_date_end` for omitido, usa `reference_date` como data
+    única (equivalente a um intervalo de 1 dia — comportamento legado).
+    Quando `reference_date` também é omitido, remove todos os registros
+    do fornecedor.
     """
     if "df" not in st.session_state:
         return
@@ -266,7 +270,11 @@ def remove_supplier_from_df(
     df_atual = st.session_state["df"]
     mask_del = df_atual[supplier_col] == supplier
     if reference_date is not None:
-        mask_del &= df_atual[COLS["date"]].dt.date == reference_date
+        date_end = reference_date_end if reference_date_end is not None else reference_date
+        mask_del &= (
+            (df_atual[COLS["date"]].dt.date >= reference_date)
+            & (df_atual[COLS["date"]].dt.date <= date_end)
+        )
 
     df_filtrado = df_atual[~mask_del].copy()
     df_filtrado.reset_index(drop=True, inplace=True)
@@ -276,10 +284,12 @@ def remove_supplier_from_df(
         create_tables()
         with get_connection() as conn:
             if reference_date is not None:
+                date_end = reference_date_end if reference_date_end is not None else reference_date
                 conn.execute(
                     'DELETE FROM registros_defeitos '
-                    'WHERE "FORNECEDOR" = ? AND "DATA DE PRODUÇÃO ACABAMENTO" = ?',
-                    (supplier, reference_date.strftime("%Y-%m-%d")),
+                    'WHERE "FORNECEDOR" = ? '
+                    'AND "DATA DE PRODUÇÃO ACABAMENTO" BETWEEN ? AND ?',
+                    (supplier, reference_date.strftime("%Y-%m-%d"), date_end.strftime("%Y-%m-%d")),
                 )
             else:
                 conn.execute(

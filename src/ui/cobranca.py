@@ -430,12 +430,15 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
 
     _render_page_header(charge_threshold)
 
-    # ── Filtro de Data de Referência ────────────────────────────────────────
-    reference_date = _render_reference_date_filter(df)
-    df = df[df[COLS["date"]].dt.date == reference_date].copy()
+    # ── Filtro de Período de Referência ───────────────────────────────────────
+    date_start, date_end = _render_reference_date_filter(df)
+    df = df[
+        (df[COLS["date"]].dt.date >= date_start)
+        & (df[COLS["date"]].dt.date <= date_end)
+    ].copy()
 
     if df.empty:
-        _render_no_records_for_date(reference_date)
+        _render_no_records_for_date(date_start, date_end)
         return
 
     # ── Calcular totais por fornecedor ────────────────────────────────────────
@@ -541,7 +544,8 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
         data_cobranca=data_cobranca,
         data_vencimento=data_vencimento,
         dias_para_vencer=dias_para_vencer,
-        reference_date=reference_date,
+        reference_date=date_start,
+        reference_date_end=date_end,
     )
 
 
@@ -578,21 +582,22 @@ def _render_page_header(charge_threshold: float) -> None:
     )
 
 
-def _render_reference_date_filter(df: pd.DataFrame) -> date:
+def _render_reference_date_filter(df: pd.DataFrame) -> tuple[date, date]:
     """
-    Filtro de Data de Referência: define de qual data de produção os
-    registros serão considerados para o cálculo e lançamento da cobrança.
-    Apenas fornecedores com registros nessa data específica são exibidos,
-    e o lançamento remove/move apenas os registros dessa data.
+    Filtro de Período de Referência: define o intervalo de datas de produção
+    cujos registros serão considerados para o cálculo e lançamento da
+    cobrança. Apenas fornecedores com registros nesse intervalo são
+    exibidos, e o lançamento remove/move apenas os registros do intervalo.
     """
-    available_dates = sorted(df[COLS["date"]].dt.date.unique(), reverse=True)
-    default_date     = available_dates[0] if available_dates else date.today()
+    available_dates = sorted(df[COLS["date"]].dt.date.unique())
+    min_date = available_dates[0]  if available_dates else date.today()
+    max_date = available_dates[-1] if available_dates else date.today()
 
     st.markdown(
         f"""
         <p style="font-size:11px;color:{COLORS['text_subtle']};
                   text-transform:uppercase;letter-spacing:0.7px;margin:0 0 8px">
-            📅 Data de Referência da Cobrança
+            📅 Período de Referência da Cobrança
         </p>
         """,
         unsafe_allow_html=True,
@@ -600,21 +605,41 @@ def _render_reference_date_filter(df: pd.DataFrame) -> date:
 
     col_date, col_hint = st.columns([1, 3])
     with col_date:
-        selected_date = st.date_input(
-            "Data de Referência",
-            value=default_date,
+        selected_range = st.date_input(
+            "Período de Referência",
+            value=(max_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
             format="DD/MM/YYYY",
             key="cobranca_reference_date",
             label_visibility="collapsed",
-            help="Somente os registros com esta data de produção serão "
-                 "considerados para o cálculo e lançamento da cobrança.",
+            help="Somente os registros com data de produção dentro deste "
+                 "intervalo serão considerados para o cálculo e lançamento "
+                 "da cobrança. Ex: 22/07/2026 até 30/07/2026.",
         )
+
+    if isinstance(selected_range, tuple) and len(selected_range) == 2:
+        date_start, date_end = selected_range
+    else:
+        # Enquanto o usuário só selecionou a primeira data do intervalo,
+        # o widget retorna uma tupla de 1 elemento — usa-a como start=end.
+        single = selected_range[0] if isinstance(selected_range, tuple) else selected_range
+        date_start = date_end = single
+
+    if date_start > date_end:
+        date_start, date_end = date_end, date_start
+
     with col_hint:
+        period_label = (
+            date_start.strftime('%d/%m/%Y')
+            if date_start == date_end
+            else f"{date_start.strftime('%d/%m/%Y')} até {date_end.strftime('%d/%m/%Y')}"
+        )
         st.markdown(
             f"""
             <div style="margin-top:0.35rem;font-size:12px;color:{COLORS['text_subtle']}">
-                Apenas registros produzidos em <strong>{selected_date.strftime('%d/%m/%Y')}</strong>
-                serão considerados. Ao lançar, somente os registros dessa data
+                Apenas registros produzidos entre <strong>{period_label}</strong>
+                serão considerados. Ao lançar, somente os registros desse período
                 são removidos da planilha ativa e movidos para o histórico.
             </div>
             """,
@@ -627,10 +652,15 @@ def _render_reference_date_filter(df: pd.DataFrame) -> date:
         unsafe_allow_html=True,
     )
 
-    return selected_date
+    return date_start, date_end
 
 
-def _render_no_records_for_date(selected_date: date) -> None:
+def _render_no_records_for_date(date_start: date, date_end: date) -> None:
+    period_label = (
+        date_start.strftime('%d/%m/%Y')
+        if date_start == date_end
+        else f"{date_start.strftime('%d/%m/%Y')} até {date_end.strftime('%d/%m/%Y')}"
+    )
     st.markdown(
         f"""
         <div style="
@@ -640,11 +670,11 @@ def _render_no_records_for_date(selected_date: date) -> None:
             <div style="font-size:48px; opacity:0.25">📭</div>
             <p style="font-size:18px; font-weight:600;
                       color:{COLORS['text_primary']}; margin:0">
-                Nenhum registro para {selected_date.strftime('%d/%m/%Y')}
+                Nenhum registro para {period_label}
             </p>
             <p style="font-size:13px; color:{COLORS['text_subtle']};
                       margin:0; max-width:380px; line-height:1.6">
-                Selecione outra Data de Referência acima para visualizar as
+                Selecione outro Período de Referência acima para visualizar as
                 cobranças correspondentes.
             </p>
         </div>
@@ -854,6 +884,7 @@ def _render_charge_button(
     data_vencimento: date,
     dias_para_vencer: int,
     reference_date: date,
+    reference_date_end: date,
 ) -> None:
     """
     Gerencia o fluxo:
@@ -862,11 +893,16 @@ def _render_charge_button(
          → gera Excel, salva bd_cobranca, remove fornecedor do df
       3. Estado: "Cobrança lançada" com download disponível
 
-    O estado de lançamento é isolado por fornecedor + Data de Referência,
-    para que trocar a data não mostre "já lançado" indevidamente nem
-    bloqueie uma nova cobrança do mesmo fornecedor em outra data.
+    O estado de lançamento é isolado por fornecedor + Período de Referência,
+    para que trocar o período não mostre "já lançado" indevidamente nem
+    bloqueie uma nova cobrança do mesmo fornecedor em outro período.
     """
-    charge_id      = f"{supplier}_{reference_date.isoformat()}"
+    period_label = (
+        reference_date.strftime('%d/%m/%Y')
+        if reference_date == reference_date_end
+        else f"{reference_date.strftime('%d/%m/%Y')} até {reference_date_end.strftime('%d/%m/%Y')}"
+    )
+    charge_id      = f"{supplier}_{reference_date.isoformat()}_{reference_date_end.isoformat()}"
     charge_key     = f"charge_confirmed_{charge_id}"
     charge_doc_key = f"charge_doc_{charge_id}"
 
@@ -913,9 +949,11 @@ def _render_charge_button(
                 data_vencimento=data_vencimento,
             )
 
-            # 4. Remove fornecedor do DataFrame ativo (apenas registros da
-            #    Data de Referência selecionada)
-            remove_supplier_from_df(supplier, COLS["supplier"], reference_date)
+            # 4. Remove fornecedor do DataFrame ativo (apenas registros do
+            #    Período de Referência selecionado)
+            remove_supplier_from_df(
+                supplier, COLS["supplier"], reference_date, reference_date_end
+            )
 
         now_str = date.today().strftime("%d/%m/%Y")
         st.session_state[charge_key]                 = True
@@ -943,7 +981,7 @@ def _render_charge_button(
                 </span>
                 <p style="font-size:12px;color:{COLORS['text_muted']};margin:4px 0 0">
                     Fornecedor: <strong>{supplier}</strong> —
-                    Data de Referência: <strong>{reference_date.strftime('%d/%m/%Y')}</strong> —
+                    Período de Referência: <strong>{period_label}</strong> —
                     Emitida em: {launched_at} —
                     Código: <code style="color:#534AB7;font-weight:700">{cod_lancamento}</code> —
                     Registros removidos da planilha ativa e salvos em
@@ -961,7 +999,7 @@ def _render_charge_button(
                 st.download_button(
                     label="Baixar Documento de Cobranca (Excel)",
                     data=st.session_state[charge_doc_key],
-                    file_name=f"cobranca_{supplier.replace(' ', '_')}_{reference_date.isoformat()}.xlsx",
+                    file_name=f"cobranca_{supplier.replace(' ', '_')}_{reference_date.isoformat()}_{reference_date_end.isoformat()}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key=f"dl_after_{charge_id}",
                     use_container_width=True,
