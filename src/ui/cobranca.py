@@ -430,6 +430,14 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
 
     _render_page_header(charge_threshold)
 
+    # ── Filtro de Data de Referência ────────────────────────────────────────
+    reference_date = _render_reference_date_filter(df)
+    df = df[df[COLS["date"]].dt.date == reference_date].copy()
+
+    if df.empty:
+        _render_no_records_for_date(reference_date)
+        return
+
     # ── Calcular totais por fornecedor ────────────────────────────────────────
     supplier_totals = (
         df.groupby(COLS["supplier"])[COLS["value_brl"]]
@@ -533,6 +541,7 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
         data_cobranca=data_cobranca,
         data_vencimento=data_vencimento,
         dias_para_vencer=dias_para_vencer,
+        reference_date=reference_date,
     )
 
 
@@ -562,6 +571,81 @@ def _render_page_header(charge_threshold: float) -> None:
             <p style="color:{COLORS['text_muted']};font-size:13px;margin:5px 0 0">
                 Fornecedores com valor total de desconto acima de
                 <strong style="color:{COLORS['text_primary']}">R$ {charge_threshold:,.2f}</strong>.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_reference_date_filter(df: pd.DataFrame) -> date:
+    """
+    Filtro de Data de Referência: define de qual data de produção os
+    registros serão considerados para o cálculo e lançamento da cobrança.
+    Apenas fornecedores com registros nessa data específica são exibidos,
+    e o lançamento remove/move apenas os registros dessa data.
+    """
+    available_dates = sorted(df[COLS["date"]].dt.date.unique(), reverse=True)
+    default_date     = available_dates[0] if available_dates else date.today()
+
+    st.markdown(
+        f"""
+        <p style="font-size:11px;color:{COLORS['text_subtle']};
+                  text-transform:uppercase;letter-spacing:0.7px;margin:0 0 8px">
+            📅 Data de Referência da Cobrança
+        </p>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col_date, col_hint = st.columns([1, 3])
+    with col_date:
+        selected_date = st.date_input(
+            "Data de Referência",
+            value=default_date,
+            format="DD/MM/YYYY",
+            key="cobranca_reference_date",
+            label_visibility="collapsed",
+            help="Somente os registros com esta data de produção serão "
+                 "considerados para o cálculo e lançamento da cobrança.",
+        )
+    with col_hint:
+        st.markdown(
+            f"""
+            <div style="margin-top:0.35rem;font-size:12px;color:{COLORS['text_subtle']}">
+                Apenas registros produzidos em <strong>{selected_date.strftime('%d/%m/%Y')}</strong>
+                serão considerados. Ao lançar, somente os registros dessa data
+                são removidos da planilha ativa e movidos para o histórico.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="border-top:1px solid {COLORS["border"]};margin-bottom:18px"></div>',
+        unsafe_allow_html=True,
+    )
+
+    return selected_date
+
+
+def _render_no_records_for_date(selected_date: date) -> None:
+    st.markdown(
+        f"""
+        <div style="
+            display:flex; flex-direction:column; align-items:center;
+            justify-content:center; min-height:30vh; text-align:center; gap:14px;
+        ">
+            <div style="font-size:48px; opacity:0.25">📭</div>
+            <p style="font-size:18px; font-weight:600;
+                      color:{COLORS['text_primary']}; margin:0">
+                Nenhum registro para {selected_date.strftime('%d/%m/%Y')}
+            </p>
+            <p style="font-size:13px; color:{COLORS['text_subtle']};
+                      margin:0; max-width:380px; line-height:1.6">
+                Selecione outra Data de Referência acima para visualizar as
+                cobranças correspondentes.
             </p>
         </div>
         """,
@@ -769,6 +853,7 @@ def _render_charge_button(
     data_cobranca: date,
     data_vencimento: date,
     dias_para_vencer: int,
+    reference_date: date,
 ) -> None:
     """
     Gerencia o fluxo:
@@ -776,9 +861,14 @@ def _render_charge_button(
       2. Dentro do modal: "Confirmar e Lançar"
          → gera Excel, salva bd_cobranca, remove fornecedor do df
       3. Estado: "Cobrança lançada" com download disponível
+
+    O estado de lançamento é isolado por fornecedor + Data de Referência,
+    para que trocar a data não mostre "já lançado" indevidamente nem
+    bloqueie uma nova cobrança do mesmo fornecedor em outra data.
     """
-    charge_key     = f"charge_confirmed_{supplier}"
-    charge_doc_key = f"charge_doc_{supplier}"
+    charge_id      = f"{supplier}_{reference_date.isoformat()}"
+    charge_key     = f"charge_confirmed_{charge_id}"
+    charge_doc_key = f"charge_doc_{charge_id}"
 
     # ── Processar confirmação vinda do modal ──────────────────────────────────
     if st.session_state.pop("_preview_confirmed", False):
@@ -823,23 +913,24 @@ def _render_charge_button(
                 data_vencimento=data_vencimento,
             )
 
-            # 4. Remove fornecedor do DataFrame ativo
-            remove_supplier_from_df(supplier, COLS["supplier"])
+            # 4. Remove fornecedor do DataFrame ativo (apenas registros da
+            #    Data de Referência selecionada)
+            remove_supplier_from_df(supplier, COLS["supplier"], reference_date)
 
         now_str = date.today().strftime("%d/%m/%Y")
-        st.session_state[charge_key]                = True
-        st.session_state[charge_doc_key]            = excel_bytes
-        st.session_state[f"charge_html_{supplier}"] = html_page
-        st.session_state[f"charge_time_{supplier}"] = now_str
-        st.session_state[f"charge_cod_{supplier}"]  = cod_lancamento
+        st.session_state[charge_key]                 = True
+        st.session_state[charge_doc_key]             = excel_bytes
+        st.session_state[f"charge_html_{charge_id}"] = html_page
+        st.session_state[f"charge_time_{charge_id}"] = now_str
+        st.session_state[f"charge_cod_{charge_id}"]  = cod_lancamento
         st.rerun()
 
     already_launched = st.session_state.get(charge_key, False)
 
     if already_launched:
         # ── Estado: cobrança lançada ──────────────────────────────────────────
-        launched_at = st.session_state.get(f"charge_time_{supplier}", "")
-        cod_lancamento = st.session_state.get(f"charge_cod_{supplier}", "")
+        launched_at = st.session_state.get(f"charge_time_{charge_id}", "")
+        cod_lancamento = st.session_state.get(f"charge_cod_{charge_id}", "")
         st.markdown(
             f"""
             <div style="
@@ -852,6 +943,7 @@ def _render_charge_button(
                 </span>
                 <p style="font-size:12px;color:{COLORS['text_muted']};margin:4px 0 0">
                     Fornecedor: <strong>{supplier}</strong> —
+                    Data de Referência: <strong>{reference_date.strftime('%d/%m/%Y')}</strong> —
                     Emitida em: {launched_at} —
                     Código: <code style="color:#534AB7;font-weight:700">{cod_lancamento}</code> —
                     Registros removidos da planilha ativa e salvos em
@@ -869,13 +961,13 @@ def _render_charge_button(
                 st.download_button(
                     label="Baixar Documento de Cobranca (Excel)",
                     data=st.session_state[charge_doc_key],
-                    file_name=f"cobranca_{supplier.replace(' ', '_')}_{date.today().isoformat()}.xlsx",
+                    file_name=f"cobranca_{supplier.replace(' ', '_')}_{reference_date.isoformat()}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"dl_after_{supplier}",
+                    key=f"dl_after_{charge_id}",
                     use_container_width=True,
                 )
         with col_pdf_preview:
-            html_page = st.session_state.get(f"charge_html_{supplier}", "")
+            html_page = st.session_state.get(f"charge_html_{charge_id}", "")
             if html_page:
                 html_b64 = base64.b64encode(html_page.encode("utf-8")).decode()
                 components.html(
@@ -935,11 +1027,12 @@ def _render_charge_button(
                 )
 
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        if st.button("↺ Relançar / Emitir Novo Documento", key=f"relaunch_{supplier}", use_container_width=True):
+        if st.button("↺ Relançar / Emitir Novo Documento", key=f"relaunch_{charge_id}", use_container_width=True):
             st.session_state.pop(charge_key, None)
             st.session_state.pop(charge_doc_key, None)
-            st.session_state.pop(f"charge_html_{supplier}", None)
-            st.session_state.pop(f"charge_time_{supplier}", None)
+            st.session_state.pop(f"charge_html_{charge_id}", None)
+            st.session_state.pop(f"charge_time_{charge_id}", None)
+            st.session_state.pop(f"charge_cod_{charge_id}", None)
             st.rerun()
         return
 
@@ -978,7 +1071,7 @@ def _render_charge_button(
         if st.button(
             "Pre-visualizar Cobranca",
             use_container_width=True,
-            key=f"preview_{supplier}",
+            key=f"preview_{charge_id}",
         ):
             _show_preview_dialog(
                 supplier=supplier,
@@ -997,7 +1090,7 @@ def _render_charge_button(
             f"🚀 Lançar — R$ {total:,.2f}",
             type="primary",
             use_container_width=True,
-            key=f"launch_{supplier}",
+            key=f"launch_{charge_id}",
         ):
             st.session_state["_preview_confirmed"] = True
             st.rerun()

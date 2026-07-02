@@ -246,26 +246,46 @@ def migrate_paid_to_payments() -> int:
     return count
 
 
-def remove_supplier_from_df(supplier: str, supplier_col: str) -> None:
+def remove_supplier_from_df(
+    supplier: str,
+    supplier_col: str,
+    reference_date: date | None = None,
+) -> None:
     """
-    Remove todos os registros do fornecedor da tabela registros_defeitos
-    e atualiza o session_state.
+    Remove os registros do fornecedor da tabela registros_defeitos e
+    atualiza o session_state.
+
+    Quando `reference_date` é informado, remove apenas os registros desse
+    fornecedor cuja data de produção seja igual à data de referência
+    (cobrança lançada por data). Quando omitido, remove todos os registros
+    do fornecedor (comportamento legado).
     """
     if "df" not in st.session_state:
         return
 
-    df_atual    = st.session_state["df"]
-    df_filtrado = df_atual[df_atual[supplier_col] != supplier].copy()
+    df_atual = st.session_state["df"]
+    mask_del = df_atual[supplier_col] == supplier
+    if reference_date is not None:
+        mask_del &= df_atual[COLS["date"]].dt.date == reference_date
+
+    df_filtrado = df_atual[~mask_del].copy()
     df_filtrado.reset_index(drop=True, inplace=True)
     st.session_state["df"] = df_filtrado
 
     try:
         create_tables()
         with get_connection() as conn:
-            conn.execute(
-                'DELETE FROM registros_defeitos WHERE "FORNECEDOR" = ?',
-                (supplier,),
-            )
+            if reference_date is not None:
+                conn.execute(
+                    'DELETE FROM registros_defeitos '
+                    'WHERE "FORNECEDOR" = ? AND "DATA DE PRODUÇÃO ACABAMENTO" = ?',
+                    (supplier, reference_date.strftime("%Y-%m-%d")),
+                )
+            else:
+                conn.execute(
+                    'DELETE FROM registros_defeitos WHERE "FORNECEDOR" = ?',
+                    (supplier,),
+                )
             conn.commit()
         push_db_to_github(DB_PATH)
     except Exception as exc:
