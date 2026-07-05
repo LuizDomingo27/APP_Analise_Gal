@@ -299,7 +299,7 @@ def area_defects_by_date(df: pd.DataFrame) -> alt.Chart:
         ),
         y=alt.Y(
             field=COLS["quantity"], type="quantitative",
-            axis=alt.Axis(title=None, grid=False),
+            axis=alt.Axis(title=None, grid=False, labels=False, ticks=False),
         ),
         tooltip=[
             alt.Tooltip(field=COLS["date"], type="temporal", title="Data", format="%d/%m/%Y"),
@@ -311,7 +311,43 @@ def area_defects_by_date(df: pd.DataFrame) -> alt.Chart:
     line   = base.mark_line(color="#00B884", strokeWidth=2.5, interpolate="monotone")
     points = base.mark_circle(color="#00B884", size=55, opacity=1)
 
-    return _configure((area + line + points).properties(height=330))
+    if not df.empty:
+        max_date = df[COLS["date"]].max()
+        mean_val = float(df[COLS["quantity"]].mean())
+        mean_df = pd.DataFrame([{"mean": mean_val, "date": max_date}])
+        
+        mean_line = (
+            alt.Chart(mean_df)
+            .mark_rule(color="#00805C", strokeDash=[4, 4], strokeWidth=1.5)
+            .encode(
+                y="mean:Q",
+                tooltip=[alt.Tooltip("mean:Q", title="Variação Média", format=".1f")]
+            )
+        )
+        
+        mean_str = f"{mean_val:.1f}".replace(".", ",")
+        mean_text = (
+            alt.Chart(mean_df)
+            .mark_text(
+                align="right",
+                baseline="bottom",
+                dx=-10,
+                dy=-5,
+                fontSize=11,
+                fontWeight="bold",
+                color="#00805C"
+            )
+            .encode(
+                x=alt.X(field="date", type="temporal"),
+                y="mean:Q",
+                text=alt.value(f"Média: {mean_str}")
+            )
+        )
+        chart = area + line + points + mean_line + mean_text
+    else:
+        chart = area + line + points
+
+    return _configure(chart.properties(height=330))
 
 
 # ── Area – cost by date ───────────────────────────────────────────────────────
@@ -324,7 +360,7 @@ def area_cost_by_date(df: pd.DataFrame) -> alt.Chart:
         ),
         y=alt.Y(
             field=COLS["value_brl"], type="quantitative",
-            axis=alt.Axis(title=None, grid=False, format="$,.0f"),
+            axis=alt.Axis(title=None, grid=False, labels=False, ticks=False),
         ),
         tooltip=[
             alt.Tooltip(field=COLS["date"], type="temporal", title="Data", format="%d/%m/%Y"),
@@ -336,4 +372,40 @@ def area_cost_by_date(df: pd.DataFrame) -> alt.Chart:
     line   = base.mark_line(color="#D85A30", strokeWidth=2.5, interpolate="monotone")
     points = base.mark_circle(color="#D85A30", size=55, opacity=1)
 
-    return _configure((area + line + points).properties(height=330))
+    if not df.empty:
+        max_date = df[COLS["date"]].max()
+        mean_val = float(df[COLS["value_brl"]].mean())
+        mean_df = pd.DataFrame([{"mean": mean_val, "date": max_date}])
+        
+        mean_line = (
+            alt.Chart(mean_df)
+            .mark_rule(color="#A83F1B", strokeDash=[4, 4], strokeWidth=1.5)
+            .encode(
+                y="mean:Q",
+                tooltip=[alt.Tooltip("mean:Q", title="Custo Médio", format="$,.2f")]
+            )
+        )
+        
+        mean_formatted = f"{mean_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        mean_text = (
+            alt.Chart(mean_df)
+            .mark_text(
+                align="right",
+                baseline="bottom",
+                dx=-10,
+                dy=-5,
+                fontSize=11,
+                fontWeight="bold",
+                color="#A83F1B"
+            )
+            .encode(
+                x=alt.X(field="date", type="temporal"),
+                y="mean:Q",
+                text=alt.value(f"Média: R$ {mean_formatted}")
+            )
+        )
+        chart = area + line + points + mean_line + mean_text
+    else:
+        chart = area + line + points
+
+    return _configure(chart.properties(height=330))

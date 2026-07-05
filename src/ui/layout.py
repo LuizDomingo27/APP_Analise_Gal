@@ -54,6 +54,187 @@ def _defect_legend() -> None:
     )
 
 
+# ── Variation table CSS (shared) ─────────────────────────────────────────────
+
+_VAR_TABLE_CSS = """
+<style>
+  .nv-var-wrap::-webkit-scrollbar { width:6px; height:6px; }
+  .nv-var-wrap::-webkit-scrollbar-track { background:#FFFFFF; border-radius:3px; }
+  .nv-var-wrap::-webkit-scrollbar-thumb { background:rgba(0,229,160,0.45); border-radius:3px; }
+  .nv-var-wrap::-webkit-scrollbar-thumb:hover { background:rgba(0,229,160,0.70); }
+  .nv-var-wrap tr:hover td { background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }
+</style>
+"""
+
+_VAR_TH = (
+    "padding:11px 14px;text-align:center;color:#FFFFFF;font-weight:600;"
+    "font-size:10px;text-transform:uppercase;letter-spacing:0.9px;"
+    "background:#00805C;border-bottom:1px solid rgba(0,229,160,0.35);"
+    "white-space:nowrap;position:sticky;top:0;z-index:1;"
+)
+_VAR_TH_L = _VAR_TH + "text-align:left;"
+
+
+def _trend_html(val: float, invert: bool = False) -> str:
+    """Badge de tendência: ↑ piorou / ↓ melhorou / → estável.
+
+    Se *invert* é True, valor positivo = melhora (para custos que diminuem).
+    """
+    import math
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return '<span style="color:#7C8985;font-weight:600;">—</span>'
+    if abs(val) < 0.01:
+        return '<span style="color:#7C8985;font-weight:600;">→</span>'
+    if val > 0:
+        color = "#E24B4A" if not invert else "#00805C"
+        arrow = "↑"
+    else:
+        color = "#00805C" if not invert else "#E24B4A"
+        arrow = "↓"
+    return f'<span style="color:{color};font-weight:700;font-size:14px;">{arrow}</span>'
+
+
+def _var_badge(val: float, fmt: str = "+.2f", prefix: str = "", suffix: str = "") -> str:
+    """Badge colorido para valor de variação."""
+    import math
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return '<span style="color:#7C8985;">—</span>'
+    color = "#E24B4A" if val > 0 else "#00805C" if val < 0 else "#7C8985"
+    formatted = f"{val:{fmt}}"
+    if val > 0:
+        formatted = f"+{formatted}" if not formatted.startswith("+") else formatted
+    return (
+        f'<span style="color:{color};font-weight:600;">'
+        f'{prefix}{formatted}{suffix}</span>'
+    )
+
+
+def _wrap_table(head_html: str, rows_html: str, max_height: str = "400px", max_width: str = "100%") -> str:
+    """Envolve cabeçalho + linhas no container padrão."""
+    return f"""{_VAR_TABLE_CSS}
+<div class="nv-var-wrap" style="max-width:{max_width}; max-height:{max_height}; overflow:auto; border-radius:12px; border:1px solid rgba(0,229,160,0.32); border-top:2px solid #00B884; background:#F2F7F5; box-shadow:0 0 22px rgba(0,229,160,0.10);">
+  <table style="width:100%;border-collapse:collapse;min-width:300px;">
+    <thead><tr>{head_html}</tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+</div>"""
+
+
+
+def _td(val: str, row_bg: str, align: str = "center") -> str:
+    return (
+        f'<td style="padding:9px 14px;font-size:12.5px;color:#0D1B17;'
+        f'border-bottom:1px solid rgba(0,229,160,0.12);'
+        f'text-align:{align};{row_bg}">{val}</td>'
+    )
+
+
+def _row_bg(i: int) -> str:
+    return "background:rgba(0,229,160,0.07);" if i % 2 == 1 else "background:#F2F7F5;"
+
+
+# ── Tabela 1: Variação por fornecedor ─────────────────────────────────────────
+
+def _render_variation_table_supplier(df: pd.DataFrame) -> None:
+    if df.empty:
+        st.info("Dados insuficientes para variação semanal (mínimo 2 semanas).")
+        return
+
+    headers_config = [
+        ("Fornecedor", "text-align:left; width:45%;"),
+        ("Sem. Anterior (Qtd)", "width:15%;"),
+        ("Sem. Atual (Qtd)", "width:15%;"),
+        ("Variação (Qtd)", "width:15%;"),
+        ("Tendência", "width:10%;"),
+    ]
+    head_html = "".join(
+        f'<th style="{_VAR_TH_L if name == "Fornecedor" else _VAR_TH} {style}">✦ {name}</th>'
+        for name, style in headers_config
+    )
+
+    rows_html = ""
+    for i, (_, row) in enumerate(df.iterrows()):
+        bg = _row_bg(i)
+        var_val = float(row["Variação (Qtd)"])
+        cells = (
+            _td(str(row["Fornecedor"]), bg, "left")
+            + _td(f'{int(row["Sem. Anterior (Qtd)"]):,}', bg)
+            + _td(f'{int(row["Sem. Atual (Qtd)"]):,}', bg)
+            + _td(_var_badge(var_val, fmt=",.0f"), bg)
+            + _td(_trend_html(var_val), bg)
+        )
+        rows_html += f"<tr>{cells}</tr>"
+
+    st.markdown(_wrap_table(head_html, rows_html, max_height="500px"), unsafe_allow_html=True)
+
+
+# ── Tabela 2: Variação semanal geral (remonte) ───────────────────────────────
+
+def _render_variation_table_remonte(df: pd.DataFrame) -> None:
+    if df.empty:
+        st.info("Dados insuficientes para variação semanal.")
+        return
+
+    headers = ["Período", "Total Remontes", "Variação (%)", "Tendência"]
+    head_html = "".join(
+        f'<th style="{_VAR_TH}">✦ {h}</th>' for h in headers
+    )
+
+    rows_html = ""
+    for i, (_, row) in enumerate(df.iterrows()):
+        bg = _row_bg(i)
+        var_val = row["Variação (%)"]
+        var_val = float(var_val) if pd.notna(var_val) else None
+        cells = (
+            _td(f'<strong>{row["Período"]}</strong>', bg)
+            + _td(f'{int(row["Total Remontes"]):,}', bg)
+            + _td(_var_badge(var_val, fmt=".2f", suffix="%") if var_val is not None else '<span style="color:#7C8985;">—</span>', bg)
+            + _td(_trend_html(var_val), bg)
+        )
+        rows_html += f"<tr>{cells}</tr>"
+
+    st.markdown(_wrap_table(head_html, rows_html), unsafe_allow_html=True)
+
+
+
+# ── Tabela 3: Variação semanal de valores (R$) ───────────────────────────────
+
+def _render_variation_table_cost(df: pd.DataFrame) -> None:
+    if df.empty:
+        st.info("Dados insuficientes para variação semanal.")
+        return
+
+    headers = ["Período", "Valor Total (R$)", "Variação (R$)", "Variação (%)", "Tendência"]
+    head_html = "".join(
+        f'<th style="{_VAR_TH}">✦ {h}</th>' for h in headers
+    )
+
+    rows_html = ""
+    for i, (_, row) in enumerate(df.iterrows()):
+        bg = _row_bg(i)
+        var_r = row["Variação (R$)"]
+        var_r = float(var_r) if pd.notna(var_r) else None
+        var_p = row["Variação (%)"]
+        var_p = float(var_p) if pd.notna(var_p) else None
+
+        cells = (
+            _td(f'<strong>{row["Período"]}</strong>', bg)
+            + _td(f'R$ {float(row["Valor Total (R$)"]):,.2f}', bg)
+            + _td(
+                _var_badge(var_r, fmt=",.2f", prefix="R$ ") if var_r is not None
+                else '<span style="color:#7C8985;">—</span>', bg
+            )
+            + _td(
+                _var_badge(var_p, fmt=".2f", suffix="%") if var_p is not None
+                else '<span style="color:#7C8985;">—</span>', bg
+            )
+            + _td(_trend_html(var_r), bg)
+        )
+        rows_html += f"<tr>{cells}</tr>"
+
+    st.markdown(_wrap_table(head_html, rows_html), unsafe_allow_html=True)
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def render_charts(processor: DataProcessor, full_df: pd.DataFrame) -> None:
@@ -105,17 +286,32 @@ def _render_suppliers(processor: DataProcessor) -> None:
         _chart_label("Top 10 — custo de remonte (R$)")
         st.altair_chart(builder.bar_supplier_cost(processor.by_supplier_cost(10)), use_container_width=True)
 
+
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-    # Linha 2: taxa de remonte e combinações
+    # Linha 2: Combinações e Variação Semanal por Fornecedores lado a lado
     c3, c4 = st.columns(2)
     with c3:
-        _chart_label("Top 10 — taxa de remonte (%)")
-        st.altair_chart(builder.bar_supplier_rate(processor.by_supplier_rate(10)), use_container_width=True)
-    with c4:
         _chart_label("Top 12 — combinações Local × Defeito")
         _defect_legend()
         st.altair_chart(builder.bar_key_combinations(processor.by_key(12)), use_container_width=True)
+    with c4:
+        _chart_label("Variação Semanal por Fornecedores")
+        _render_variation_table_supplier(processor.weekly_remonte_by_supplier(10))
+
+    # ── Variação Semanal ──────────────────────────────────────────────────────
+    _section("Variação Semanal", "📈")
+
+    # Linha 3: Tabelas 2 e 3 lado a lado
+    c5, c6 = st.columns(2)
+    with c5:
+        _chart_label("Variação Semanal")
+        _render_variation_table_remonte(processor.weekly_remonte_variation())
+        
+    with c6:
+        _chart_label("Variação Semanal — Valores (R$)")
+        _render_variation_table_cost(processor.weekly_cost_variation())
+
 
 
 # ── Section 4: Tabela de dados detalhados ─────────────────────────────────────
