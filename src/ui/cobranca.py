@@ -588,6 +588,9 @@ def _render_reference_date_filter(df: pd.DataFrame) -> tuple[date, date]:
     cujos registros serão considerados para o cálculo e lançamento da
     cobrança. Apenas fornecedores com registros nesse intervalo são
     exibidos, e o lançamento remove/move apenas os registros do intervalo.
+
+    Apresentado como dois campos explícitos — Data Inicial e Data Final —
+    para deixar claro que se trata de um filtro "de uma data até outra data".
     """
     available_dates = sorted(df[COLS["date"]].dt.date.unique())
     min_date = available_dates[0]  if available_dates else date.today()
@@ -597,35 +600,39 @@ def _render_reference_date_filter(df: pd.DataFrame) -> tuple[date, date]:
         f"""
         <p style="font-size:11px;color:{COLORS['text_subtle']};
                   text-transform:uppercase;letter-spacing:0.7px;margin:0 0 8px">
-            📅 Período de Referência da Cobrança
+            📅 Período de Referência da Cobrança — filtre de uma data até outra
         </p>
         """,
         unsafe_allow_html=True,
     )
 
-    col_date, col_hint = st.columns([1, 3])
-    with col_date:
-        selected_range = st.date_input(
-            "Período de Referência",
-            value=(max_date, max_date),
+    col_start, col_end, col_hint = st.columns([1, 1, 2])
+
+    with col_start:
+        date_start = st.date_input(
+            "De (Data Inicial)",
+            value=min_date,
             min_value=min_date,
             max_value=max_date,
             format="DD/MM/YYYY",
-            key="cobranca_reference_date",
-            label_visibility="collapsed",
-            help="Somente os registros com data de produção dentro deste "
-                 "intervalo serão considerados para o cálculo e lançamento "
-                 "da cobrança. Ex: 22/07/2026 até 30/07/2026.",
+            key="cobranca_reference_date_start",
+            help="Data inicial do período. Somente registros produzidos a "
+                 "partir desta data (inclusive) serão considerados.",
         )
 
-    if isinstance(selected_range, tuple) and len(selected_range) == 2:
-        date_start, date_end = selected_range
-    else:
-        # Enquanto o usuário só selecionou a primeira data do intervalo,
-        # o widget retorna uma tupla de 1 elemento — usa-a como start=end.
-        single = selected_range[0] if isinstance(selected_range, tuple) else selected_range
-        date_start = date_end = single
+    with col_end:
+        date_end = st.date_input(
+            "Até (Data Final)",
+            value=max_date,
+            min_value=min_date,
+            max_value=max_date,
+            format="DD/MM/YYYY",
+            key="cobranca_reference_date_end",
+            help="Data final do período. Somente registros produzidos até "
+                 "esta data (inclusive) serão considerados.",
+        )
 
+    # Se o usuário inverter as datas, normaliza para não quebrar o filtro.
     if date_start > date_end:
         date_start, date_end = date_end, date_start
 
@@ -637,7 +644,7 @@ def _render_reference_date_filter(df: pd.DataFrame) -> tuple[date, date]:
         )
         st.markdown(
             f"""
-            <div style="margin-top:0.35rem;font-size:12px;color:{COLORS['text_subtle']}">
+            <div style="margin-top:1.8rem;font-size:12px;color:{COLORS['text_subtle']}">
                 Apenas registros produzidos entre <strong>{period_label}</strong>
                 serão considerados. Ao lançar, somente os registros desse período
                 são removidos da planilha ativa e movidos para o histórico.
