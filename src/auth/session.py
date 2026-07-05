@@ -112,7 +112,18 @@ def render_user_sidebar() -> None:
         logout()
         st.rerun()
 
-    # Painel de administração de usuários (somente admin).
-    if role == "admin":
-        from src.ui.login import render_admin_user_panel
-        render_admin_user_panel()
+    # Oculta a página de gerenciamento de usuários para quem não é administrador
+    if role != "admin":
+        st.markdown(
+            """
+            <style>
+            a[href*="Gerenciar_Usuarios"] {
+                display: none !important;
+            }
+            div[data-testid="stSidebarNavItems"] li:has(a[href*="Gerenciar_Usuarios"]) {
+                display: none !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )

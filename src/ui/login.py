@@ -6,9 +6,6 @@ Renderiza a página de autenticação em tela cheia com três abas:
   • Entrar            — login com usuário e senha
   • Criar Conta       — auto-cadastro (o 1º usuário vira administrador)
   • Esqueci a Senha   — reset via pergunta de segurança
-
-Também expõe render_admin_user_panel(): painel na sidebar, visível apenas
-para administradores, para inserir e remover usuários.
 """
 
 import streamlit as st
@@ -309,64 +306,4 @@ def render_login_screen() -> None:
     )
 
 
-# ── Painel admin (sidebar) ────────────────────────────────────────────────────
 
-def render_admin_user_panel() -> None:
-    """Painel na sidebar para inserir/remover usuários (somente admin)."""
-    with st.sidebar.expander("👥 Gerenciar Usuários"):
-        admin_flash = st.session_state.pop("admin_flash", None)
-        if admin_flash:
-            st.success(admin_flash)
-        st.markdown(
-            "<p style='font-size:11.5px;color:#4A5752;margin:0 0 8px'>"
-            "Inserir novo usuário no sistema.</p>",
-            unsafe_allow_html=True,
-        )
-        with st.form("form_admin_add_user", border=False):
-            new_user = st.text_input("Usuário", key="admin_new_user",
-                                     placeholder="ex.: maria.souza")
-            new_nome = st.text_input("Nome completo", key="admin_new_nome")
-            new_pass = st.text_input("Senha provisória", type="password",
-                                     key="admin_new_pass")
-            new_role = st.selectbox("Perfil", ["user", "admin"], key="admin_new_role")
-            add_submitted = st.form_submit_button("➕ Inserir usuário",
-                                                  use_container_width=True)
-        if add_submitted:
-            ok, msg = auth_db.create_user(
-                username=new_user, nome=new_nome, password=new_pass,
-                role=new_role,
-            )
-            if ok:
-                st.session_state["admin_flash"] = msg
-                st.rerun()
-            else:
-                st.error(msg)
-
-        st.markdown("<hr style='margin:10px 0'>", unsafe_allow_html=True)
-        st.markdown(
-            "<p style='font-size:11.5px;color:#4A5752;margin:0 0 6px'>"
-            "Usuários cadastrados:</p>",
-            unsafe_allow_html=True,
-        )
-        users = auth_db.list_users()
-        current = session.current_user() or {}
-        for u in users:
-            cols = st.columns([3, 1])
-            with cols[0]:
-                tag = " · admin" if u["role"] == "admin" else ""
-                st.markdown(
-                    f"<div style='font-size:11.5px;color:#0D1B17;padding-top:6px'>"
-                    f"<b>{u['nome']}</b><br>"
-                    f"<span style='color:#7C8985'>@{u['username']}{tag}</span></div>",
-                    unsafe_allow_html=True,
-                )
-            with cols[1]:
-                if u["username"] != current.get("username"):
-                    if st.button("🗑️", key=f"del_{u['username']}",
-                                 help=f"Remover {u['username']}"):
-                        ok, msg = auth_db.delete_user(u["username"])
-                        if ok:
-                            st.success(msg)
-                            st.rerun()
-                        else:
-                            st.error(msg)
