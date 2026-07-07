@@ -22,6 +22,7 @@ st.set_page_config(
 from src.config.settings import COLORS
 from src.ui.records_editor import render_records_editor_page
 from src.auth.session import require_login, render_user_sidebar
+from src.ui.error_boundary import page_guard
 
 # CSS consistente com a identidade visual do app principal
 st.markdown(
@@ -131,6 +132,7 @@ def _render_no_data_message() -> None:
     )
 
 
+@page_guard
 def main() -> None:
     require_login()
     render_user_sidebar()

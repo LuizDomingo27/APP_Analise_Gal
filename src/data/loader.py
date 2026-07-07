@@ -14,7 +14,7 @@ import streamlit as st
 from sqlalchemy import text
 
 from src.config.settings import COLS
-from src.data.database import create_tables, get_connection
+from src.data.database import DatabaseUnavailableError, create_tables, get_connection
 
 
 # ── Público: carregamento do banco ────────────────────────────────────────────
@@ -63,30 +63,34 @@ def append_new_data(uploaded_file) -> dict | None:
         st.error(f"❌ Erro ao ler arquivo: {exc}")
         return None
 
-    create_tables()
-
     date_col = COLS["date"]
 
-    with get_connection() as conn:
-        rows = conn.execute(
-            text('SELECT DISTINCT "DATA DE PRODUÇÃO ACABAMENTO" FROM registros_defeitos')
-        ).fetchall()
-        existing_dates = {r[0] for r in rows if r[0]}
+    try:
+        create_tables()
 
-        new_dates_str = df_new[date_col].dt.strftime("%Y-%m-%d")
-        mask_new      = ~new_dates_str.isin(existing_dates)
-        df_to_add     = df_new[mask_new].copy()
-        duplicates    = int((~mask_new).sum())
+        with get_connection() as conn:
+            rows = conn.execute(
+                text('SELECT DISTINCT "DATA DE PRODUÇÃO ACABAMENTO" FROM registros_defeitos')
+            ).fetchall()
+            existing_dates = {r[0] for r in rows if r[0]}
 
-        if not df_to_add.empty:
-            df_to_add[date_col] = df_to_add[date_col].dt.strftime("%Y-%m-%d")
-            df_to_add.to_sql("registros_defeitos", conn, if_exists="append", index=False)
+            new_dates_str = df_new[date_col].dt.strftime("%Y-%m-%d")
+            mask_new      = ~new_dates_str.isin(existing_dates)
+            df_to_add     = df_new[mask_new].copy()
+            duplicates    = int((~mask_new).sum())
 
-        total = conn.execute(
-            text("SELECT COUNT(*) FROM registros_defeitos")
-        ).fetchone()[0]
+            if not df_to_add.empty:
+                df_to_add[date_col] = df_to_add[date_col].dt.strftime("%Y-%m-%d")
+                df_to_add.to_sql("registros_defeitos", conn, if_exists="append", index=False)
 
-        conn.commit()
+            total = conn.execute(
+                text("SELECT COUNT(*) FROM registros_defeitos")
+            ).fetchone()[0]
+
+            conn.commit()
+    except DatabaseUnavailableError as exc:
+        st.error(f"⚠️ {exc}")
+        return None
 
     load_data_from_disk.clear()
 

@@ -19,6 +19,7 @@ from src.ui.filters import render_filters
 from src.ui.metrics import render_metrics, render_insights
 from src.ui.layout import render_charts
 from src.auth.session import require_login, render_user_sidebar
+from src.ui.error_boundary import page_guard
 
 # ── Page config (must be first Streamlit call) ────────────────────────────────
 st.set_page_config(**PAGE_CONFIG)
@@ -444,6 +445,7 @@ def _bootstrap() -> None:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+@page_guard
 def main() -> None:
 
     # ── Portão de autenticação (tela de proteção) ─────────────────────────────

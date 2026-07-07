@@ -54,7 +54,47 @@ def _inject_custom_styles() -> None:
             font-weight: 600 !important;
             color: {COLORS['text_muted']} !important;
         }}
-        
+
+        /* ── Campos do Formulário (bordas visíveis + foco) ──
+           Escopado ao card para não afetar outros componentes da página. */
+        div[class*="st-key-form_container"] .stTextInput input,
+        div[class*="st-key-form_container"] .stTextInput [data-baseweb="input"],
+        div[class*="st-key-form_container"] .stTextInput [data-baseweb="base-input"],
+        div[class*="st-key-form_container"] .stSelectbox [data-baseweb="select"] > div {{
+            background: #FFFFFF !important;
+            color: {COLORS['text_primary']} !important;
+            border: 1px solid rgba(0,184,132,0.35) !important;
+            border-radius: 8px !important;
+            box-shadow: 0 1px 2px rgba(13,27,23,0.04) !important;
+            transition: border-color .15s ease, box-shadow .15s ease !important;
+        }}
+        /* Wrapper interno do text_input não pode ter borda dupla */
+        div[class*="st-key-form_container"] .stTextInput [data-baseweb="input"] input,
+        div[class*="st-key-form_container"] .stTextInput [data-baseweb="base-input"] {{
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }}
+        div[class*="st-key-form_container"] .stTextInput input::placeholder {{
+            color: #9AA7A2 !important;
+        }}
+        div[class*="st-key-form_container"] .stTextInput [data-baseweb="input"]:hover,
+        div[class*="st-key-form_container"] .stSelectbox [data-baseweb="select"] > div:hover {{
+            border-color: #00B884 !important;
+        }}
+        div[class*="st-key-form_container"] .stTextInput [data-baseweb="input"]:focus-within,
+        div[class*="st-key-form_container"] .stTextInput input:focus {{
+            border-color: #00B884 !important;
+            box-shadow: 0 0 0 3px rgba(0,229,160,0.20) !important;
+            outline: none !important;
+        }}
+        /* Ícones (chevron do selectbox, olho da senha) na cor da identidade */
+        div[class*="st-key-form_container"] [data-baseweb="select"] svg,
+        div[class*="st-key-form_container"] .stTextInput svg {{
+            fill: #00B884 !important;
+            color: {COLORS['text_primary']} !important;
+        }}
+
         /* ── Botão de Excluir Personalizado ── */
         div[class*="st-key-del_btn_"] button {{
             background: rgba(226, 75, 74, 0.08) !important;

@@ -128,6 +128,15 @@ def get_connection():
     """
     try:
         conn: Connection = get_engine().connect()
+    except DatabaseUnavailableError:
+        # Já traduzido — apenas propaga.
+        raise
+    except RuntimeError as exc:
+        # DATABASE_URL ausente/mal configurado (_database_url). A mensagem já é
+        # amigável e acionável; embrulha em DatabaseUnavailableError para que a
+        # fronteira de erro das páginas a exiba sem traceback.
+        logger.error("Configuração de banco indisponível: %s", exc)
+        raise DatabaseUnavailableError(str(exc)) from exc
     except SQLAlchemyError as exc:
         logger.exception("Falha ao conectar ao banco de dados")
         raise DatabaseUnavailableError(_friendly_db_message(exc)) from exc
@@ -135,7 +144,6 @@ def get_connection():
     try:
         yield conn
     except SQLAlchemyError as exc:
-        print(f"Erro original: {exc}")        
         logger.exception("Erro ao executar operação no banco de dados")
         raise DatabaseUnavailableError(_friendly_db_message(exc)) from exc
     finally:

@@ -47,12 +47,7 @@ import base64
 import streamlit.components.v1 as components
 from src.ui.preview import _generate_historico_html
 from src.auth.session import require_login, render_user_sidebar
-# Force reload comment
-
-# ── Migra cobranças já pagas (lançadas antes da página Pagamentos
-# Concluídos existir) para bd_pagamentos.xlsx, antes de qualquer outra
-# coisa nesta página. Idempotente — não faz nada se já estiver tudo migrado.
-migrate_paid_to_payments()
+from src.ui.error_boundary import page_guard
 
 # ── CSS global ────────────────────────────────────────────────────────────────
 st.markdown(
@@ -418,9 +413,17 @@ def _show_extrato_dialog(cod_lancamento: str, df_source: pd.DataFrame) -> None:
 # Entry point
 # ══════════════════════════════════════════════════════════════════════════════
 
+@page_guard
 def main() -> None:
     require_login()
     render_user_sidebar()
+
+    # ── Migra cobranças já pagas (lançadas antes da página Pagamentos
+    # Concluídos existir) para pagamentos_concluidos. Idempotente — não faz
+    # nada se já estiver tudo migrado. Fica dentro do main() (após o login e
+    # sob o page_guard) para que uma falha de banco vire mensagem amigável,
+    # em vez de quebrar a página ainda no import do módulo.
+    migrate_paid_to_payments()
 
     # ── Cabeçalho ─────────────────────────────────────────────────────────────
     st.markdown(
