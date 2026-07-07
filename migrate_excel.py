@@ -1,10 +1,10 @@
 """
-Script de migração one-time: importa os 3 xlsx existentes para o SQLite.
+Script de migração one-time: importa os 3 xlsx existentes direto para o
+Postgres (Supabase), usando a mesma DATABASE_URL configurada em
+.streamlit/secrets.toml ou na variável de ambiente DATABASE_URL.
 
-Execute localmente UMA VEZ, antes do primeiro deploy com SQLite:
+Execute localmente UMA VEZ, antes do primeiro deploy:
     python migrate_excel.py
-
-Depois comite o arquivo dataset/analise_gal.db gerado.
 """
 
 import re as _re
@@ -124,7 +124,7 @@ def migrate_pagamentos() -> int:
 
 
 def main() -> None:
-    print("Criando tabelas SQLite...")
+    print("Criando tabelas no Postgres (Supabase)...")
     create_tables()
 
     print("Migrando bd_principal.xlsx -> registros_defeitos...")
@@ -139,9 +139,7 @@ def main() -> None:
     n = migrate_pagamentos()
     print(f"  OK {n} registros inseridos.")
 
-    from src.config.settings import DB_PATH
-    print(f"\nBanco criado em: {DB_PATH}")
-    print("Próximo passo: git add dataset/analise_gal.db && git commit && git push")
+    print("\nMigração concluída no Postgres (Supabase).")
 
 
 if __name__ == "__main__":

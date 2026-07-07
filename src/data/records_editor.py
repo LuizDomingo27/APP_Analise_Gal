@@ -7,18 +7,20 @@ toca historico_cobrancas nem pagamentos_concluidos — correções aqui são
 para inconsistências de digitação (acentos, caracteres especiais, etc.)
 na base ativa, não para o fluxo de cobrança/pagamento.
 
-Como a tabela não tem chave primária declarada, os edits usam o rowid
-implícito do SQLite para localizar linhas com precisão.
+A tabela tem PK `id` (bigserial). Os edits individuais usam essa coluna
+para localizar linhas com precisão — no Postgres não existe `rowid`, e o
+`ctid` não é estável. A busca expõe o `id` sob o alias `_rowid` para manter
+a interface consumida pela UI (que trata o valor como uma chave opaca).
 """
 
 from datetime import date
 
 import pandas as pd
 import streamlit as st
+from sqlalchemy import text
 
-from src.config.settings import COLS, DB_PATH
+from src.config.settings import COLS
 from src.data.database import create_tables, get_connection
-from src.data.github_sync import push_db_to_github
 
 # ── Colunas de texto sujeitas a inconsistência de digitação ───────────────────
 EDITABLE_TEXT_COLUMNS = [
@@ -39,7 +41,7 @@ _ALL_COLUMNS = list(COLS.values())
 
 
 def _sync_after_write() -> None:
-    """Invalida caches e re-sincroniza a df ativa em session_state + GitHub."""
+    """Invalida caches e re-sincroniza a df ativa em session_state."""
     st.cache_data.clear()
 
     from src.data.loader import load_data_from_disk
@@ -49,36 +51,41 @@ def _sync_after_write() -> None:
     if df_reloaded is not None:
         st.session_state["df"] = df_reloaded
 
-    push_db_to_github(DB_PATH)
-
 
 # ── Unificação de valores (find & replace em massa) ───────────────────────────
 
 def get_value_counts(column: str) -> pd.DataFrame:
     """
     Retorna os valores distintos de `column` em registros_defeitos com a
-    quantidade de registros de cada um, ordenado alfabeticamente — útil
-    para localizar variações do mesmo fornecedor/material (com/sem acento,
-    caracteres especiais, espaços extras etc.).
+    quantidade de registros de cada um, ordenado alfabeticamente (case-insensitive).
     """
     if column not in _ALL_COLUMNS:
         raise ValueError(f"Coluna inválida: {column}")
 
     create_tables()
     with get_connection() as conn:
+        # CORREÇÃO: Foi adicionado LOWER("{column}") como uma coluna temporária 
+        # chamada "ordem_lower" no SELECT para permitir o agrupamento e ordenação corretos no Postgres.
         df = pd.read_sql(
-            f'SELECT "{column}" AS valor, COUNT(*) AS qtd '
-            f'FROM registros_defeitos '
-            f'GROUP BY "{column}" '
-            f'ORDER BY "{column}" COLLATE NOCASE',
+            text(
+                f'SELECT "{column}" AS valor, COUNT(*) AS qtd, LOWER("{column}") AS ordem_lower '
+                f'FROM registros_defeitos '
+                f'GROUP BY "{column}", LOWER("{column}") '
+                f'ORDER BY ordem_lower'
+            ),
             conn,
         )
+    
+    # Remove a coluna auxiliar para entregar o DataFrame idêntico ao formato original esperado pela UI
+    if not df.empty:
+        df = df.drop(columns=["ordem_lower"])
+        
     return df
 
 
 def rename_value(column: str, old_value: str, new_value: str) -> int:
     """
-    Substitui `old_value` por `new_value` em `column` para todos os
+    Substitui `old_value` por `new_value` in `column` para todos os
     registros de registros_defeitos que casarem exatamente. Retorna o
     número de linhas afetadas.
     """
@@ -91,11 +98,11 @@ def rename_value(column: str, old_value: str, new_value: str) -> int:
 
     create_tables()
     with get_connection() as conn:
-        cur = conn.execute(
-            f'UPDATE registros_defeitos SET "{column}" = ? WHERE "{column}" = ?',
-            (new_value, old_value),
+        result = conn.execute(
+            text(f'UPDATE registros_defeitos SET "{column}" = :new WHERE "{column}" = :old'),
+            {"new": new_value, "old": old_value},
         )
-        affected = cur.rowcount
+        affected = result.rowcount
         conn.commit()
 
     if affected:
@@ -114,41 +121,45 @@ def search_records(
 ) -> pd.DataFrame:
     """
     Busca registros de registros_defeitos com filtros opcionais, incluindo
-    o rowid do SQLite (coluna `_rowid`) para permitir edição/gravação
+    a PK `id` (exposta como coluna `_rowid`) para permitir edição/gravação
     precisa por linha. Resultado limitado a `limit` linhas.
     """
     create_tables()
 
     clauses: list[str] = []
-    params: list = []
+    params: dict = {}
 
     if supplier:
-        clauses.append('"FORNECEDOR" = ?')
-        params.append(supplier)
+        clauses.append('"FORNECEDOR" = :supplier')
+        params["supplier"] = supplier
     if date_from:
-        clauses.append('"DATA DE PRODUÇÃO ACABAMENTO" >= ?')
-        params.append(date_from.strftime("%Y-%m-%d"))
+        clauses.append('"DATA DE PRODUÇÃO ACABAMENTO" >= :date_from')
+        params["date_from"] = date_from.strftime("%Y-%m-%d")
     if date_to:
-        clauses.append('"DATA DE PRODUÇÃO ACABAMENTO" <= ?')
-        params.append(date_to.strftime("%Y-%m-%d"))
+        clauses.append('"DATA DE PRODUÇÃO ACABAMENTO" <= :date_to')
+        params["date_to"] = date_to.strftime("%Y-%m-%d")
     if order:
-        clauses.append('"ORDEM MESTRE" LIKE ?')
-        params.append(f"%{order}%")
+        clauses.append('"ORDEM MESTRE" LIKE :order')
+        params["order"] = f"%{order}%"
 
     where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params["limit"] = limit
 
     with get_connection() as conn:
         df = pd.read_sql(
-            f'SELECT rowid AS _rowid, * FROM registros_defeitos '
-            f'{where_sql} '
-            f'ORDER BY "DATA DE PRODUÇÃO ACABAMENTO" DESC LIMIT ?',
+            text(
+                f'SELECT id AS _rowid, * FROM registros_defeitos '
+                f'{where_sql} '
+                f'ORDER BY "DATA DE PRODUÇÃO ACABAMENTO" DESC LIMIT :limit'
+            ),
             conn,
-            params=[*params, limit],
+            params=params,
         )
 
     if df.empty:
         return df
 
+    df = df.drop(columns=["id"], errors="ignore")  # mantém só o alias _rowid
     df[COLS["date"]] = pd.to_datetime(df[COLS["date"]], errors="coerce")
     df[COLS["quantity"]]  = pd.to_numeric(df[COLS["quantity"]], errors="coerce")
     df[COLS["value_brl"]] = pd.to_numeric(df[COLS["value_brl"]], errors="coerce")
@@ -159,22 +170,28 @@ def search_records(
 def update_record_fields(rowid: int, updates: dict) -> bool:
     """
     Atualiza colunas específicas de um único registro de registros_defeitos,
-    localizado pelo rowid do SQLite. `updates` é um dict {coluna: novo_valor}
-    já contendo apenas os campos que de fato mudaram. Retorna True se a
-    linha foi alterada.
+    localizado pela PK `id` (recebida em `rowid`).
     """
     updates = {c: v for c, v in updates.items() if c in _ALL_COLUMNS}
     if not updates:
         return False
 
     create_tables()
-    set_sql = ", ".join(f'"{c}" = ?' for c in updates)
+
+    set_parts: list[str] = []
+    params: dict = {}
+    for i, (col, val) in enumerate(updates.items()):
+        pname = f"v{i}"
+        set_parts.append(f'"{col}" = :{pname}')
+        params[pname] = val
+    params["rid"] = int(rowid)
+
     with get_connection() as conn:
-        cur = conn.execute(
-            f'UPDATE registros_defeitos SET {set_sql} WHERE rowid = ?',
-            (*updates.values(), int(rowid)),
+        result = conn.execute(
+            text(f'UPDATE registros_defeitos SET {", ".join(set_parts)} WHERE id = :rid'),
+            params,
         )
-        affected = cur.rowcount
+        affected = result.rowcount
         conn.commit()
 
     if affected:
@@ -186,8 +203,13 @@ def get_distinct_suppliers() -> list[str]:
     """Lista de fornecedores distintos em registros_defeitos, ordenada."""
     create_tables()
     with get_connection() as conn:
+        # CORREÇÃO: Selecionamos também o LOWER("FORNECEDOR") dando o alias de "ordem_lower".
+        # Com isso, o ORDER BY passa a usar a coluna explicitada no SELECT, validando as regras do Postgres.
         rows = conn.execute(
-            'SELECT DISTINCT "FORNECEDOR" FROM registros_defeitos '
-            'ORDER BY "FORNECEDOR" COLLATE NOCASE'
+            text(
+                'SELECT DISTINCT "FORNECEDOR", LOWER("FORNECEDOR") AS ordem_lower '
+                'FROM registros_defeitos '
+                'ORDER BY ordem_lower'
+            )
         ).fetchall()
     return [r[0] for r in rows if r[0]]

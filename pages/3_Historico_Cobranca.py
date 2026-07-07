@@ -37,10 +37,12 @@ from src.data.cobranca_history import (
     load_history,
     update_lancamento_status,
     migrate_paid_to_payments,
-    payment_punctuality,
     generate_history_xlsx_bytes,
+    generate_single_charge_xlsx_bytes,
+    group_charges,
+    status_badge_html,
+    situacao_badge_html,
 )
-from src.config.settings import DB_PATH
 import base64
 import streamlit.components.v1 as components
 from src.ui.preview import _generate_historico_html
@@ -117,13 +119,6 @@ _ORDERED_COLS = [
     COLS["value_brl"],
 ]
 
-# Ícone e cor de fundo (HTML) por status
-_STATUS_BADGE = {
-    "Pago":       ("✅", "#00E5A0", "#FFFFFF"),
-    "Pendente":   ("⏳", "#EF9F27", "#E8EFEC"),
-    "Contestado": ("⚠️", "#D85A30", "#FFFFFF"),
-}
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Card KPI
@@ -157,9 +152,266 @@ def _kpi_card(col, icon: str, label: str, value: str, accent: str) -> None:
         )
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Tabela de extrato (resumo por lançamento) + popup de detalhes
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _render_simple_table(df: pd.DataFrame, left_cols: frozenset = frozenset(), height: int = 420) -> None:
+    """Renderiza um DataFrame como tabela HTML estilizada (cabeçalho fixo, zebra, badges)."""
+    headers = list(df.columns)
+
+    TH = (
+        "padding:11px 14px;text-align:center;color:#FFFFFF;font-weight:600;"
+        "font-size:10px;text-transform:uppercase;letter-spacing:0.9px;"
+        "background:#00805C;border-bottom:2px solid #00B884;"
+        "white-space:nowrap;position:sticky;top:0;z-index:1;"
+    )
+    TH_L = TH + "text-align:left;"
+
+    head_html = "".join(
+        f'<th style="{TH_L if h in left_cols else TH}">✦ {h}</th>' for h in headers
+    )
+
+    def _make_cell(h, val, row_bg):
+        align = "text-align:left;" if h in left_cols else "text-align:center;"
+        base_td = (
+            f"padding:9px 14px;font-size:12.5px;color:#0D1B17;"
+            f"border-bottom:1px solid rgba(0,229,160,0.12);"
+            f"{align}{row_bg}"
+        )
+        return f'<td style="{base_td}">{val}</td>'
+
+    rows_html = "".join(
+        "<tr>" + "".join(
+            _make_cell(h, row[h], "background:#FFFFFF;" if i % 2 == 1 else "background:#F2F7F5;")
+            for h in headers
+        ) + "</tr>"
+        for i, (_, row) in enumerate(df.iterrows())
+    )
+
+    table_html = f"""
+    <style>
+      .nv-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
+      .nv-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
+      .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
+      .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
+      .nv-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
+      .badge-status {{
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        display: inline-block;
+      }}
+      .status-pago {{ background: #00E5A0 !important; color: #FFFFFF !important; }}
+      .status-pendente {{ background: #EF9F27 !important; color:#FFFFFF !important; }}
+      .status-contestado {{ background: #D85A30 !important; color: #FFFFFF !important; }}
+    </style>
+    <div class="nv-table-wrap" style="
+        max-height:{height}px; overflow:auto; border-radius:12px;
+        border:1px solid rgba(0,229,160,0.32);
+        border-top:2px solid #00B884;
+        background:#F2F7F5;
+        box-shadow:0 0 22px rgba(0,229,160,0.10);
+    ">
+      <table style="width:100%;border-collapse:collapse;min-width:900px;">
+        <thead><tr>{head_html}</tr></thead>
+        <tbody>{rows_html}</tbody>
+      </table>
+    </div>
+    """
+    st.markdown(table_html, unsafe_allow_html=True)
 
 
+def _build_extrato_df(charge_groups: list[dict]) -> pd.DataFrame:
+    """Converte a lista de grupos (uma cobrança por linha) num DataFrame de extrato."""
+    rows = [
+        {
+            "Código": g["cod"],
+            "Fornecedor": g["fornecedor"],
+            "CNPJ": g["cnpj"],
+            "Data Cobrança": g["data_cobranca"],
+            "Vencimento": g["data_vencimento"],
+            "Situação": situacao_badge_html(g["status"], g["data_vencimento"], g["data_pagamento"]),
+            "Status": status_badge_html(g["status"]),
+            "Itens": g["n_itens"],
+            "Valor Total": f"R$ {g['valor_total']:,.2f}",
+        }
+        for g in charge_groups
+    ]
+    return pd.DataFrame(rows)
 
+
+def _render_print_button(html_content: str) -> None:
+    """Botão que abre um HTML de impressão em nova aba (padrão de 'PDF' usado no app)."""
+    html_b64 = base64.b64encode(html_content.encode("utf-8")).decode()
+    components.html(
+        f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    background: transparent;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }}
+  .btn {{
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; min-width: 160px; height: 38px; border-radius: 6px; cursor: pointer;
+    font-size: 14px; font-weight: 500;
+    transition: all .15s ease;
+    background: rgba(0,229,160,0.15);
+    color:#00805C;
+    border: 1px solid rgba(0,229,160,0.35);
+    padding: 0 20px;
+  }}
+  .btn:hover {{
+    background: rgba(0,229,160,0.28);
+    border-color: rgba(0,229,160,0.6);
+  }}
+  .btn:active {{ transform: scale(0.98); }}
+</style>
+</head>
+<body>
+<button class="btn" onclick="openPreview()">🖨️&nbsp; Prévia / Imprimir PDF</button>
+<script>
+  const _HTML_B64 = "{html_b64}";
+  function openPreview() {{
+    try {{
+      const bytes = Uint8Array.from(atob(_HTML_B64), c => c.charCodeAt(0));
+      const html  = new TextDecoder("utf-8").decode(bytes);
+      const win   = window.open("", "_blank");
+      if (win) {{
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+      }} else {{
+        const blob = new Blob([html], {{ type: "text/html;charset=utf-8" }});
+        window.open(URL.createObjectURL(blob), "_blank");
+      }}
+    }} catch (err) {{
+      console.error(err);
+      alert("Não foi possível abrir a prévia. Permita popups para este site.");
+    }}
+  }}
+</script>
+</body>
+</html>""",
+        height=38,
+        scrolling=False,
+    )
+
+
+@st.dialog("🧾 Detalhes do Extrato", width="large")
+def _show_extrato_dialog(cod_lancamento: str, df_source: pd.DataFrame) -> None:
+    """Popup com todos os itens de um COD_LANCAMENTO e opções de download (Excel / PDF)."""
+    cod_label     = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
+    sup_label     = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
+    cnpj_label    = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
+    dte_label     = HISTORY_LABELS.get("DATA_COBRANCA",   "Data Cobrança")
+    venc_label    = HISTORY_LABELS.get("DATA_VENCIMENTO", "Data Vencimento")
+    status_label  = HISTORY_LABELS.get(COLS["status"],    "Status")
+    val_label     = HISTORY_LABELS.get(COLS["value_brl"], "Valor (R$)")
+    ord_label     = HISTORY_LABELS.get(COLS["order"],     "OM")
+    qty_label     = HISTORY_LABELS.get(COLS["quantity"],  "Qtd")
+    min_label     = HISTORY_LABELS.get(COLS["minutes"],   "Min. Gerados")
+    remonte_label = HISTORY_LABELS.get(COLS["defect"],    "Remonte")
+    rc_label      = HISTORY_LABELS.get(COLS["real_cut"],  "Real Cortado")
+    prod_label    = HISTORY_LABELS.get(COLS["date"],      "Data Produção")
+
+    df_item = df_source[df_source[cod_label] == cod_lancamento].copy()
+    if df_item.empty:
+        st.warning("Nenhum item encontrado para este código.")
+        return
+
+    primeira    = df_item.iloc[0]
+    valor_total = pd.to_numeric(df_item[val_label], errors="coerce").sum()
+
+    st.markdown(
+        f"""
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;
+                    padding:12px 16px;margin-bottom:14px;border-radius:10px;
+                    background:#F2F7F5;border:1px solid rgba(0,229,160,0.25)">
+            <div>
+                <div style="font-size:15px;font-weight:700;color:#0D1B17">{primeira[sup_label]}</div>
+                <div style="font-size:12px;color:#4A5752">CNPJ: {primeira[cnpj_label]}</div>
+            </div>
+            <div style="text-align:right;font-size:12px;color:#4A5752">
+                <div>Código: <strong style="font-family:Consolas,monospace;color:#534AB7">{cod_lancamento}</strong></div>
+                <div>Cobrança: {primeira[dte_label]} &nbsp;·&nbsp; Vencimento: {primeira[venc_label]}</div>
+                <div style="margin-top:4px">{status_badge_html(primeira[status_label])}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    item_cols = [c for c in (ord_label, prod_label, qty_label, remonte_label, rc_label, min_label, val_label)
+                 if c in df_item.columns]
+    df_display_item = df_item[item_cols].copy()
+    if val_label in df_display_item.columns:
+        df_display_item[val_label] = df_display_item[val_label].apply(
+            lambda v: f"R$ {float(v):,.2f}" if pd.notna(v) else ""
+        )
+    if min_label in df_display_item.columns:
+        df_display_item[min_label] = df_display_item[min_label].apply(
+            lambda v: f"{float(v):,.2f}" if pd.notna(v) else ""
+        )
+    if qty_label in df_display_item.columns:
+        df_display_item[qty_label] = df_display_item[qty_label].apply(
+            lambda v: f"{int(float(v)):,}" if pd.notna(v) else ""
+        )
+    if ord_label in df_display_item.columns:
+        df_display_item[ord_label] = df_display_item[ord_label].apply(
+            lambda v: f"{int(float(v))}" if pd.notna(v) else ""
+        )
+    if rc_label in df_display_item.columns:
+        df_display_item[rc_label] = df_display_item[rc_label].apply(
+            lambda v: f"{int(float(v)):,}" if pd.notna(v) else ""
+        )
+
+    _render_simple_table(df_display_item, left_cols=frozenset({remonte_label}), height=300)
+
+    st.markdown(
+        f"<div style='text-align:right;font-size:14px;font-weight:700;color:#0D1B17;margin:10px 0'>"
+        f"Total: R$ {valor_total:,.2f}</div>",
+        unsafe_allow_html=True,
+    )
+
+    col_xlsx, col_pdf = st.columns(2)
+    with col_xlsx:
+        xlsx_bytes = generate_single_charge_xlsx_bytes(cod_lancamento)
+        if xlsx_bytes:
+            st.download_button(
+                "⬇️  Baixar Excel",
+                data=xlsx_bytes,
+                file_name=f"extrato_{cod_lancamento}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_extrato_xlsx_{cod_lancamento}",
+                use_container_width=True,
+            )
+        else:
+            st.button(
+                "⬇️  Baixar Excel", disabled=True, use_container_width=True,
+                key=f"dl_extrato_xlsx_disabled_{cod_lancamento}",
+            )
+
+    with col_pdf:
+        totals_item = dict(
+            n_records=len(df_item),
+            total_minutes=pd.to_numeric(df_item[min_label], errors="coerce").sum() if min_label in df_item.columns else 0.0,
+            total_value=float(valor_total) if pd.notna(valor_total) else 0.0,
+            total_pieces=int(pd.to_numeric(df_item[qty_label], errors="coerce").sum()) if qty_label in df_item.columns else 0,
+            n_orders=df_item[ord_label].nunique() if ord_label in df_item.columns else 0,
+            n_cobrancas=1,
+        )
+        html_item = _generate_historico_html(
+            df_item.drop(columns=["_orig_idx"], errors="ignore"),
+            totals_item,
+            f"Código: {cod_lancamento}",
+        )
+        _render_print_button(html_item)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -244,26 +496,10 @@ def main() -> None:
     pag_label    = HISTORY_LABELS.get("DATA_PAGAMENTO",  "Data Pagamento")
     cnpj_label   = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
     cod_label    = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
-    dias_label   = "Dias para Vencer"
 
     for col in (val_label, min_label, qty_label):
         if col in df_view.columns:
             df_view[col] = pd.to_numeric(df_view[col], errors="coerce")
-
-    # ── Dias para Vencer: calculado em tempo real (hoje → Data de Vencimento) ─
-    # Não é salvo no xlsx (mudaria todos os dias) — apenas a Data de Vencimento
-    # é persistida; aqui ela é comparada com a data de hoje a cada acesso.
-    if venc_label in df_view.columns:
-        _venc_parsed = pd.to_datetime(df_view[venc_label], format="%d/%m/%Y", errors="coerce")
-        _today = date.today()
-
-        def _calc_dias(d):
-            if pd.isna(d):
-                return pd.NA
-            return (d.date() - _today).days
-
-        venc_idx = df_view.columns.get_loc(venc_label)
-        df_view.insert(venc_idx + 1, dias_label, _venc_parsed.apply(_calc_dias))
 
     # ── Filtros (sidebar) ─────────────────────────────────────────────────────
     st.sidebar.markdown(
@@ -297,11 +533,11 @@ def main() -> None:
         )
 
     st.sidebar.markdown(
-        '<p style="font-size:11px;color:#4A5752;margin:12px 0 4px">Fornecedor ou CNPJ:</p>',
+        '<p style="font-size:11px;color:#4A5752;margin:12px 0 4px">Fornecedor, CNPJ ou Código:</p>',
         unsafe_allow_html=True,
     )
     search_term = st.sidebar.text_input(
-        "Buscar", placeholder="Digite nome ou CNPJ…",
+        "Buscar", placeholder="Digite nome, CNPJ ou código…",
         key="hist_search", label_visibility="collapsed",
     )
 
@@ -341,7 +577,7 @@ def main() -> None:
         term  = search_term.strip().lower()
         masks = [
             df_filtered[col].astype(str).str.lower().str.contains(term, na=False)
-            for col in (sup_label, cnpj_label)
+            for col in (sup_label, cnpj_label, cod_label)
             if col in df_filtered.columns
         ]
         if masks:
@@ -351,7 +587,7 @@ def main() -> None:
             df_filtered = df_filtered[combined]
         filters_parts.append(f"Busca: \"{search_term.strip()}\"")
     else:
-        filters_parts.append("Fornecedor/CNPJ: todos")
+        filters_parts.append("Fornecedor/CNPJ/Código: todos")
 
     if status_filter and status_label in df_filtered.columns:
         df_filtered = df_filtered[df_filtered[status_label].isin(status_filter)]
@@ -432,134 +668,47 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Tabela Customizada HTML/CSS ───────────────────────────────────────────
-    display_df = df_filtered.copy()
-    
-    # Formatação dos dados para exibição na tabela HTML
-    display_df[val_label] = display_df[val_label].apply(lambda v: f"R$ {float(v):,.2f}" if pd.notna(v) else "")
-    display_df[min_label] = display_df[min_label].apply(lambda v: f"{float(v):,.2f}" if pd.notna(v) else "")
-    display_df[qty_label] = display_df[qty_label].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
-    display_df[ord_label] = display_df[ord_label].apply(lambda v: f"{int(float(v))}" if pd.notna(v) else "")
-    if "Real Cortado" in display_df.columns:
-        display_df["Real Cortado"] = display_df["Real Cortado"].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
-
-    _status_raw = (
-        display_df[status_label].astype(str).str.strip()
-        if status_label in display_df.columns
-        else pd.Series([""] * len(display_df), index=display_df.index)
+    # ── Tabela de Extrato (resumo por lançamento) ─────────────────────────────
+    # Uma linha por COD_LANCAMENTO, não por item — os detalhes completos ficam
+    # disponíveis no popup "Ver Detalhes" (busca + seleção abaixo).
+    charge_groups = group_charges(
+        df_filtered, cod_label, sup_label, cnpj_label, dte_label,
+        venc_label, pag_label, status_label, val_label,
     )
-
-    if status_label in display_df.columns:
-        display_df[status_label] = display_df[status_label].apply(lambda s: 
-            '<span class="badge-status status-pago">✅ Pago</span>' if str(s).strip() == "Pago"
-            else ('<span class="badge-status status-contestado">⚠️ Contestado</span>' if str(s).strip() == "Contestado"
-            else '<span class="badge-status status-pendente">⏳ Pendente</span>')
+    charge_opts = [
+        (
+            f"{g['fornecedor']} | Código: {g['cod']} | "
+            f"R$ {g['valor_total']:,.2f} | {g['n_itens']} item(ns) | {g['data_cobranca']}",
+            g["cod"], g["status"], g["data_vencimento"], g["data_pagamento"],
         )
+        for g in charge_groups
+    ]
 
-    # ── Dias para Vencer / Situação de Pagamento: badge colorido ─────────────
-    # Pendente/Contestado -> contagem regressiva até o vencimento.
-    # Pago -> compara a Data de Pagamento (manual) com a Data de Vencimento
-    #         e mostra se foi pago no prazo ou com atraso.
-    if dias_label in display_df.columns:
-        _venc_raw = (
-            display_df[venc_label] if venc_label in display_df.columns
-            else pd.Series([""] * len(display_df), index=display_df.index)
+    if charge_groups:
+        _render_simple_table(
+            _build_extrato_df(charge_groups),
+            left_cols=frozenset({"Fornecedor"}),
+            height=440,
         )
-        _pag_raw = (
-            display_df[pag_label] if pag_label in display_df.columns
-            else pd.Series([""] * len(display_df), index=display_df.index)
+    else:
+        st.info("Nenhum extrato encontrado para os filtros atuais.")
+
+    # ── Buscar + abrir extrato específico em popup ────────────────────────────
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    col_sel, col_view = st.columns([3, 1])
+    if charge_opts:
+        selected_detail = col_sel.selectbox(
+            "Ver detalhes do extrato",
+            options=charge_opts,
+            format_func=lambda x: f"[{x[2]}] {x[0]}",
+            key="select_charge_detail",
         )
-
-        def _badge_dias(dias_val, status_val, venc_val, pag_val):
-            if status_val == "Pago":
-                dias_atraso, atrasado = payment_punctuality(pag_val, venc_val)
-                if atrasado is None:
-                    return '<span class="badge-status status-pendente">❔ Informe a data do pagamento</span>'
-                if atrasado:
-                    return f'<span class="badge-status status-contestado">⚠️ Pago com {dias_atraso}d de atraso</span>'
-                return '<span class="badge-status status-pago">✅ Pago no prazo</span>'
-
-            if pd.isna(dias_val):
-                return ""
-            d = int(dias_val)
-            if d < 0:
-                return f'<span class="badge-status status-contestado">⚠️ Vencido há {abs(d)}d</span>'
-            if d == 0:
-                return '<span class="badge-status status-pendente">⏳ Vence hoje</span>'
-            return f'<span style="color:#00805C;font-weight:600">{d} dia(s)</span>'
-
-        display_df[dias_label] = [
-            _badge_dias(d, s, v, p)
-            for d, s, v, p in zip(display_df[dias_label], _status_raw, _venc_raw, _pag_raw)
-        ]
-
-    # Remover _orig_idx da exibição
-    orig_idx_col = "_orig_idx"
-    table_view_df = display_df.drop(columns=[orig_idx_col], errors="ignore")
-
-    # Renderizar tabela customizada
-    headers = list(table_view_df.columns)
-    
-    TH = (
-        "padding:11px 14px;text-align:center;color:#FFFFFF;font-weight:600;"
-        "font-size:10px;text-transform:uppercase;letter-spacing:0.9px;"
-        "background:#00805C;border-bottom:2px solid #00B884;"
-        "white-space:nowrap;position:sticky;top:0;z-index:1;"
-    )
-    TH_L = TH + "text-align:left;"
-
-    head_html = "".join(
-        f'<th style="{TH_L if h in ("Fornecedor", "Remonte") else TH}">✦ {h}</th>'
-        for h in headers
-    )
-
-    def _make_cell(h, val, row_bg):
-        is_left = h in ("Fornecedor", "Remonte")
-        align = "text-align:left;" if is_left else "text-align:center;"
-        base_td = (
-            f"padding:9px 14px;font-size:12.5px;color:#0D1B17;"
-            f"border-bottom:1px solid rgba(0,229,160,0.12);"
-            f"{align}{row_bg}"
-        )
-        return f'<td style="{base_td}">{val}</td>'
-
-    rows_html = "".join(
-        f"<tr>" + "".join(_make_cell(h, row[h], "background:#FFFFFF;" if i % 2 == 1 else "background:#F2F7F5;") for h in headers) + "</tr>"
-        for i, (_, row) in enumerate(table_view_df.iterrows())
-    )
-
-    table_html = f"""
-    <style>
-      .nv-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
-      .nv-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
-      .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
-      .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
-      .nv-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
-      .badge-status {{
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        display: inline-block;
-      }}
-      .status-pago {{ background: #00E5A0 !important; color: #FFFFFF !important; }}
-      .status-pendente {{ background: #EF9F27 !important; color:#FFFFFF !important; }}
-      .status-contestado {{ background: #D85A30 !important; color: #FFFFFF !important; }}
-    </style>
-    <div class="nv-table-wrap" style="
-        max-height:480px; overflow:auto; border-radius:12px;
-        border:1px solid rgba(0,229,160,0.32);
-        border-top:2px solid #00B884;
-        background:#F2F7F5;
-        box-shadow:0 0 22px rgba(0,229,160,0.10);
-    ">
-      <table style="width:100%;border-collapse:collapse;min-width:1100px;">
-        <thead><tr>{head_html}</tr></thead>
-        <tbody>{rows_html}</tbody>
-      </table>
-    </div>
-    """
-    st.markdown(table_html, unsafe_allow_html=True)
+        with col_view:
+            st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
+            if st.button("👁️  Ver Detalhes", use_container_width=True, key="btn_view_extrato_detail"):
+                _show_extrato_dialog(selected_detail[1], df_filtered)
+    else:
+        col_sel.caption("Nenhum extrato disponível para os filtros atuais.")
 
     # ── Painel de Controle de Status ──────────────────────────────────────────
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
@@ -571,24 +720,6 @@ def main() -> None:
             "**Pagamentos Concluídos**."
         )
         col_rec, col_st, col_pag, col_act = st.columns([2, 1, 1, 1])
-
-        charge_opts = []
-        if cod_label in df_filtered.columns:
-            for cod, grupo in df_filtered.groupby(cod_label, sort=False):
-                primeira    = grupo.iloc[0]
-                valor_total = pd.to_numeric(grupo[val_label], errors="coerce").sum()
-                qtd_itens   = len(grupo)
-                opt_label = (
-                    f"{primeira[sup_label]} | Código: {cod} | "
-                    f"R$ {float(valor_total):,.2f} | {qtd_itens} item(ns) | {primeira[dte_label]}"
-                )
-                charge_opts.append((
-                    opt_label,
-                    cod,
-                    primeira[status_label],
-                    primeira.get(venc_label, ""),
-                    primeira.get(pag_label, ""),
-                ))
 
         if charge_opts:
             selected_opt = col_rec.selectbox(
@@ -673,63 +804,7 @@ def main() -> None:
     with btn_pdf:
         if n_records > 0:
             html_hist = _generate_historico_html(df_filtered, totals, filters_desc)
-            html_hist_b64 = base64.b64encode(html_hist.encode("utf-8")).decode()
-            components.html(
-                f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{
-    background: transparent;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }}
-  .btn {{
-    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    width: 100%; min-width: 160px; height: 38px; border-radius: 6px; cursor: pointer;
-    font-size: 14px; font-weight: 500;
-    transition: all .15s ease;
-    background: rgba(0,229,160,0.15);
-    color:#00805C;
-    border: 1px solid rgba(0,229,160,0.35);
-    padding: 0 20px;
-  }}
-  .btn:hover {{
-    background: rgba(0,229,160,0.28);
-    border-color: rgba(0,229,160,0.6);
-  }}
-  .btn:active {{ transform: scale(0.98); }}
-</style>
-</head>
-<body>
-<button class="btn" onclick="openPreview()">🖨️&nbsp; Prévia / Imprimir PDF</button>
-<script>
-  const _HTML_B64 = "{html_hist_b64}";
-  function openPreview() {{
-    try {{
-      const bytes = Uint8Array.from(atob(_HTML_B64), c => c.charCodeAt(0));
-      const html  = new TextDecoder("utf-8").decode(bytes);
-      const win   = window.open("", "_blank");
-      if (win) {{
-        win.document.open();
-        win.document.write(html);
-        win.document.close();
-      }} else {{
-        const blob = new Blob([html], {{ type: "text/html;charset=utf-8" }});
-        window.open(URL.createObjectURL(blob), "_blank");
-      }}
-    }} catch (err) {{
-      console.error(err);
-      alert("Não foi possível abrir a prévia. Permita popups para este site.");
-    }}
-  }}
-</script>
-</body>
-</html>""",
-                height=38,
-                scrolling=False,
-            )
+            _render_print_button(html_hist)
         else:
             st.button(
                 "🖨️  Prévia / Imprimir PDF", disabled=True,
@@ -742,9 +817,8 @@ def main() -> None:
         '<hr style="border-color:rgba(0,0,0,0.06);margin:16px 0">',
         unsafe_allow_html=True,
     )
-    _db_ok   = DB_PATH.exists()
-    ok_color = "#00E5A0" if _db_ok else "#EF9F27"
-    ok_txt   = "Banco SQLite presente" if _db_ok else "Banco ainda não criado"
+    ok_color = "#00E5A0"
+    ok_txt   = "Banco Postgres (Supabase) conectado"
     st.sidebar.markdown(
         f'<div style="font-size:10.5px;color:{ok_color};padding:6px 8px;'
         f'border-radius:6px;background:rgba(0,229,160,0.06);'

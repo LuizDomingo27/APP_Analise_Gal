@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Gerenciamento do histórico de cobranças — tabela historico_cobrancas (SQLite).
+Gerenciamento do histórico de cobranças — tabela historico_cobrancas (Postgres/Supabase).
 """
 
 import io
@@ -15,9 +15,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from src.config.settings import COLS, DB_PATH, DATASET_DIR
+from sqlalchemy import text
+
+from src.config.settings import COLS, DATASET_DIR
 from src.data.database import create_tables, get_connection
-from src.data.github_sync import push_db_to_github
 
 # ── Legado: mantido para imports externos que ainda referenciam este caminho ──
 _BASE_DIR   = Path(__file__).resolve().parents[2]
@@ -113,6 +114,83 @@ def gerar_cod_lancamento() -> str:
     return f"PAG-{uuid.uuid4().hex[:8].upper()}"
 
 
+def status_badge_html(status: str) -> str:
+    """Retorna o HTML de badge colorido (classe CSS badge-status) para o status informado."""
+    s = str(status).strip()
+    if s == "Pago":
+        return '<span class="badge-status status-pago">✅ Pago</span>'
+    if s == "Contestado":
+        return '<span class="badge-status status-contestado">⚠️ Contestado</span>'
+    return '<span class="badge-status status-pendente">⏳ Pendente</span>'
+
+
+def situacao_badge_html(status: str, data_vencimento, data_pagamento) -> str:
+    """
+    Badge de situação do lançamento:
+      - Pago -> compara Data de Pagamento x Data de Vencimento (pontualidade).
+      - Pendente/Contestado -> contagem regressiva até o vencimento.
+    """
+    s = str(status).strip()
+    if s == "Pago":
+        dias_atraso, atrasado = payment_punctuality(data_pagamento, data_vencimento)
+        if atrasado is None:
+            return '<span class="badge-status status-pendente">❔ Informe a data do pagamento</span>'
+        if atrasado:
+            return f'<span class="badge-status status-contestado">⚠️ Pago com {dias_atraso}d de atraso</span>'
+        return '<span class="badge-status status-pago">✅ Pago no prazo</span>'
+
+    venc_dt = pd.to_datetime(data_vencimento, format="%d/%m/%Y", errors="coerce") \
+        if isinstance(data_vencimento, str) else pd.to_datetime(data_vencimento, errors="coerce")
+    if venc_dt is None or pd.isna(venc_dt):
+        return ""
+    dias = (venc_dt.date() - date.today()).days
+    if dias < 0:
+        return f'<span class="badge-status status-contestado">⚠️ Vencido há {abs(dias)}d</span>'
+    if dias == 0:
+        return '<span class="badge-status status-pendente">⏳ Vence hoje</span>'
+    return f'<span style="color:#00805C;font-weight:600">{dias} dia(s)</span>'
+
+
+def group_charges(
+    df: pd.DataFrame,
+    cod_label: str,
+    sup_label: str,
+    cnpj_label: str,
+    dte_label: str,
+    venc_label: str,
+    pag_label: str,
+    status_label: str,
+    val_label: str,
+) -> list[dict]:
+    """
+    Agrupa um DataFrame de histórico já rotulado (uma linha por item) por
+    Código de Lançamento, retornando um resumo — uma entrada por cobrança —
+    com valor total e número de itens. Base para a tabela de extratos e para
+    os seletores de "lançamento" usados na página de Histórico.
+    """
+    groups: list[dict] = []
+    if cod_label not in df.columns:
+        return groups
+    for cod, grupo in df.groupby(cod_label, sort=False):
+        primeira = grupo.iloc[0]
+        valor_total = (
+            pd.to_numeric(grupo[val_label], errors="coerce").sum()
+            if val_label in grupo.columns else 0.0
+        )
+        groups.append({
+            "cod": cod,
+            "fornecedor": primeira.get(sup_label, ""),
+            "cnpj": primeira.get(cnpj_label, ""),
+            "data_cobranca": primeira.get(dte_label, ""),
+            "data_vencimento": primeira.get(venc_label, ""),
+            "data_pagamento": primeira.get(pag_label, ""),
+            "status": primeira.get(status_label, ""),
+            "n_itens": len(grupo),
+            "valor_total": float(valor_total) if pd.notna(valor_total) else 0.0,
+        })
+    return groups
+
+
 def _cod_lancamento_fallback(cnpj: str, data_cobranca: str) -> str:
     chave = f"{cnpj}|{data_cobranca}".encode("utf-8")
     return "LEG-" + hashlib.md5(chave).hexdigest()[:8].upper()
@@ -130,10 +208,9 @@ def save_charge_to_history(
     data_vencimento: date,
 ) -> str:
     """
-    Persiste os registros da cobrança na tabela historico_cobrancas (SQLite).
+    Persiste os registros da cobrança na tabela historico_cobrancas (Postgres).
     Retorna o COD_LANCAMENTO gerado.
     """
-    DATASET_DIR.mkdir(parents=True, exist_ok=True)
     create_tables()
 
     data_cobranca_br   = data_cobranca.strftime("%d/%m/%Y")
@@ -159,7 +236,6 @@ def save_charge_to_history(
         conn.commit()
 
     st.cache_data.clear()
-    push_db_to_github(DB_PATH)
     return cod_lancamento
 
 
@@ -180,8 +256,8 @@ def update_lancamento_status(
     try:
         with get_connection() as conn:
             rows = conn.execute(
-                "SELECT COUNT(*) FROM historico_cobrancas WHERE COD_LANCAMENTO = ?",
-                (cod_lancamento,),
+                text('SELECT COUNT(*) FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
+                {"cod": cod_lancamento},
             ).fetchone()
             if not rows or rows[0] == 0:
                 return False
@@ -190,29 +266,32 @@ def update_lancamento_status(
                 data_pagamento_br = data_pagamento.strftime("%d/%m/%Y") if data_pagamento else ""
 
                 df_pago = pd.read_sql(
-                    "SELECT * FROM historico_cobrancas WHERE COD_LANCAMENTO = ?",
+                    text('SELECT * FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
                     conn,
-                    params=(cod_lancamento,),
+                    params={"cod": cod_lancamento},
                 )
                 df_pago[COLS["status"]]  = "Pago"
                 df_pago["DATA_PAGAMENTO"] = data_pagamento_br
+                # `id` é PK auto-gerada em pagamentos_concluidos; não reinserir a de origem.
+                df_pago = df_pago.drop(columns=["id"], errors="ignore")
 
                 df_pago.to_sql("pagamentos_concluidos", conn, if_exists="append", index=False)
                 conn.execute(
-                    "DELETE FROM historico_cobrancas WHERE COD_LANCAMENTO = ?",
-                    (cod_lancamento,),
+                    text('DELETE FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
+                    {"cod": cod_lancamento},
                 )
             else:
                 conn.execute(
-                    "UPDATE historico_cobrancas SET STATUS_COBRANCA = ?, DATA_PAGAMENTO = '' "
-                    "WHERE COD_LANCAMENTO = ?",
-                    (novo_status, cod_lancamento),
+                    text(
+                        'UPDATE historico_cobrancas SET "STATUS_COBRANCA" = :s, '
+                        '"DATA_PAGAMENTO" = \'\' WHERE "COD_LANCAMENTO" = :cod'
+                    ),
+                    {"s": novo_status, "cod": cod_lancamento},
                 )
 
             conn.commit()
 
         st.cache_data.clear()
-        push_db_to_github(DB_PATH)
         return True
 
     except Exception:
@@ -228,21 +307,22 @@ def migrate_paid_to_payments() -> int:
 
     with get_connection() as conn:
         df_pago = pd.read_sql(
-            "SELECT * FROM historico_cobrancas WHERE STATUS_COBRANCA = 'Pago'",
+            text('SELECT * FROM historico_cobrancas WHERE "STATUS_COBRANCA" = \'Pago\''),
             conn,
         )
         if df_pago.empty:
             return 0
 
+        # `id` é PK auto-gerada em pagamentos_concluidos; não reinserir a de origem.
+        df_pago = df_pago.drop(columns=["id"], errors="ignore")
         df_pago.to_sql("pagamentos_concluidos", conn, if_exists="append", index=False)
         conn.execute(
-            "DELETE FROM historico_cobrancas WHERE STATUS_COBRANCA = 'Pago'"
+            text('DELETE FROM historico_cobrancas WHERE "STATUS_COBRANCA" = \'Pago\'')
         )
         conn.commit()
 
     count = len(df_pago)
     st.cache_data.clear()
-    push_db_to_github(DB_PATH)
     return count
 
 
@@ -286,18 +366,23 @@ def remove_supplier_from_df(
             if reference_date is not None:
                 date_end = reference_date_end if reference_date_end is not None else reference_date
                 conn.execute(
-                    'DELETE FROM registros_defeitos '
-                    'WHERE "FORNECEDOR" = ? '
-                    'AND "DATA DE PRODUÇÃO ACABAMENTO" BETWEEN ? AND ?',
-                    (supplier, reference_date.strftime("%Y-%m-%d"), date_end.strftime("%Y-%m-%d")),
+                    text(
+                        'DELETE FROM registros_defeitos '
+                        'WHERE "FORNECEDOR" = :sup '
+                        'AND "DATA DE PRODUÇÃO ACABAMENTO" BETWEEN :d1 AND :d2'
+                    ),
+                    {
+                        "sup": supplier,
+                        "d1": reference_date.strftime("%Y-%m-%d"),
+                        "d2": date_end.strftime("%Y-%m-%d"),
+                    },
                 )
             else:
                 conn.execute(
-                    'DELETE FROM registros_defeitos WHERE "FORNECEDOR" = ?',
-                    (supplier,),
+                    text('DELETE FROM registros_defeitos WHERE "FORNECEDOR" = :sup'),
+                    {"sup": supplier},
                 )
             conn.commit()
-        push_db_to_github(DB_PATH)
     except Exception as exc:
         st.warning(f"⚠️ Não foi possível remover do banco: {exc}")
         return
@@ -311,11 +396,10 @@ def remove_supplier_from_df(
 @st.cache_data
 def load_history() -> pd.DataFrame | None:
     """Carrega o histórico completo de historico_cobrancas. Retorna None se vazio."""
-    if not DB_PATH.exists():
-        return None
     create_tables()
     with get_connection() as conn:
         df = pd.read_sql("SELECT * FROM historico_cobrancas", conn)
+    df = df.drop(columns=["id"], errors="ignore")
     if df.empty:
         return None
     df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].fillna("").astype(str).replace(
@@ -331,11 +415,33 @@ def generate_history_xlsx_bytes() -> bytes | None:
     Gera o xlsx formatado do histórico de cobranças em memória e retorna os bytes.
     Retorna None se não houver dados.
     """
-    if not DB_PATH.exists():
-        return None
     create_tables()
     with get_connection() as conn:
         df = pd.read_sql("SELECT * FROM historico_cobrancas", conn)
+    df = df.drop(columns=["id"], errors="ignore")
+    if df.empty:
+        return None
+    df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].fillna("").astype(str).replace(
+        {"nan": "", "None": "", "NaT": ""}
+    )
+    buf = io.BytesIO()
+    _write_history_xlsx(df, buf)
+    return buf.getvalue()
+
+
+def generate_single_charge_xlsx_bytes(cod_lancamento: str) -> bytes | None:
+    """
+    Gera o xlsx formatado de um único lançamento (COD_LANCAMENTO) em memória
+    e retorna os bytes. Retorna None se o código não existir.
+    """
+    create_tables()
+    with get_connection() as conn:
+        df = pd.read_sql(
+            text('SELECT * FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
+            conn,
+            params={"cod": cod_lancamento},
+        )
+    df = df.drop(columns=["id"], errors="ignore")
     if df.empty:
         return None
     df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].fillna("").astype(str).replace(

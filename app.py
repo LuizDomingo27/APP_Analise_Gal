@@ -12,7 +12,6 @@ import streamlit as st
 from src.config.settings import PAGE_CONFIG, COLORS
 from src.data.loader import (
     load_data_from_disk,
-    load_data_from_upload,
     append_new_data,
 )
 from src.data.processor import DataProcessor

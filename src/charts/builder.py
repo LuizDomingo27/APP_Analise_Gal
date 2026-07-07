@@ -6,7 +6,7 @@ No Streamlit, no business logic.
 
 import altair as alt
 import pandas as pd
-from src.config.settings import COLS, COLORS, DEFECT_COLORS, ALTAIR_CONFIG
+from src.config.settings import COLS, DEFECT_COLORS, ALTAIR_CONFIG
 
 
 def _configure(chart: alt.Chart) -> alt.Chart:

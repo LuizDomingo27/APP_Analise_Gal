@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Gerenciamento dos Pagamentos Concluídos — tabela pagamentos_concluidos (SQLite).
+Gerenciamento dos Pagamentos Concluídos — tabela pagamentos_concluidos (Postgres/Supabase).
 """
 
 import io
 from datetime import date
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -13,13 +12,11 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from src.config.settings import COLS, DB_PATH, DATASET_DIR
+from src.config.settings import COLS, DATASET_DIR
 from src.data.database import create_tables, get_connection
-from src.data.github_sync import push_db_to_github
 from src.data.cobranca_history import (
     HISTORY_LABELS,
     _COL_WIDTHS,
-    _SAVE_COLS,
     payment_punctuality,
 )
 
@@ -46,25 +43,25 @@ def append_payments(df_rows: pd.DataFrame) -> None:
     — o movimento é feito atomicamente dentro da mesma conexão lá,
     então esta função é usada apenas por chamadas externas / migração.
     """
-    DATASET_DIR.mkdir(parents=True, exist_ok=True)
     create_tables()
+
+    # `id` é PK auto-gerada; não reinserir uma id de origem se vier no df.
+    df_rows = df_rows.drop(columns=["id"], errors="ignore")
 
     with get_connection() as conn:
         df_rows.to_sql("pagamentos_concluidos", conn, if_exists="append", index=False)
         conn.commit()
 
     st.cache_data.clear()
-    push_db_to_github(DB_PATH)
 
 
 @st.cache_data
 def load_payments() -> pd.DataFrame | None:
     """Carrega o histórico completo de pagamentos_concluidos. Retorna None se vazio."""
-    if not DB_PATH.exists():
-        return None
     create_tables()
     with get_connection() as conn:
         df = pd.read_sql("SELECT * FROM pagamentos_concluidos", conn)
+    df = df.drop(columns=["id"], errors="ignore")
     if df.empty:
         return None
     df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].fillna("").astype(str).replace(
@@ -78,11 +75,10 @@ def generate_payments_xlsx_bytes() -> bytes | None:
     Gera o xlsx executivo de pagamentos em memória e retorna os bytes.
     Retorna None se não houver dados.
     """
-    if not DB_PATH.exists():
-        return None
     create_tables()
     with get_connection() as conn:
         df = pd.read_sql("SELECT * FROM pagamentos_concluidos", conn)
+    df = df.drop(columns=["id"], errors="ignore")
     if df.empty:
         return None
     df["DATA_PAGAMENTO"] = df["DATA_PAGAMENTO"].fillna("").astype(str).replace(

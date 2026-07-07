@@ -12,6 +12,7 @@ import streamlit as st
 from src.auth import auth_db
 from src.auth import session
 from src.config.settings import COLORS
+from src.data.database import DatabaseUnavailableError
 
 
 def _inject_custom_styles() -> None:
@@ -36,7 +37,7 @@ def _inject_custom_styles() -> None:
         }}
 
         /* ── Card do Formulário (Padrão do Editor de Registros) ── */
-        div[data-testid="stVerticalBlock"] > div[class*="st-key-form_container"] {{
+        div[class*="st-key-form_container"] {{
             background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%) !important;
             border: 1px solid rgba(0,229,160,0.30) !important;
             border-top: 3px solid #00B884 !important;
@@ -129,129 +130,24 @@ def _format_date(iso_str: str) -> str:
         return iso_str
 
 
-def render_user_manager_page() -> None:
+def _render_user_manager_page_inner() -> None:
     _inject_custom_styles()
     _render_header()
 
     current_user = session.current_user() or {}
     users = auth_db.list_users()
 
-    # Layout de duas colunas
-    col_list, col_form = st.columns([5, 3], gap="large")
-
-    with col_list:
-        st.markdown("### 📋 Usuários Cadastrados")
-
-        # Mensagem de confirmação de exclusão
-        confirm_del = st.session_state.get("confirm_delete")
-        if confirm_del:
-            st.markdown(
-                f"""
-                <div style="
-                    background: rgba(226, 75, 74, 0.05);
-                    border: 1px solid rgba(226, 75, 74, 0.18);
-                    border-radius: 12px;
-                    padding: 16px 20px;
-                    margin-bottom: 20px;
-                ">
-                    <h4 style="margin:0 0 6px; color:#E24B4A; font-size:14px; font-weight:700;">⚠️ Confirmação de Exclusão</h4>
-                    <p style="margin:0 0 12px; font-size:13px; color:#4A5752; line-height:1.5;">
-                        Tem certeza que deseja remover o usuário <b>@{confirm_del}</b>? Esta ação removerá de imediato o acesso dele ao sistema.
-                    </p>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-            c1, c2 = st.columns([1, 4])
-            with c1:
-                if st.button("Sim, remover", type="primary", key="confirm_del_yes"):
-                    ok, msg = auth_db.delete_user(confirm_del)
-                    if ok:
-                        st.session_state["user_form_success"] = msg
-                        st.session_state.pop("confirm_delete", None)
-                        st.rerun()
-                    else:
-                        st.error(msg)
-            with c2:
-                if st.button("Cancelar", key="confirm_del_no"):
-                    st.session_state.pop("confirm_delete", None)
-                    st.rerun()
-            st.markdown("<hr style='margin:18px 0'>", unsafe_allow_html=True)
-
-        if not users:
-            st.info("Nenhum usuário cadastrado no sistema.")
-        else:
-            # Lista com os cartões elegantes de usuários
-            for idx, u in enumerate(users):
-                with st.container(key=f"user_card_{u['username']}"):
-                    cols = st.columns([1, 7, 1])
-                    
-                    # Avatar circular com gradiente baseado nas iniciais
-                    with cols[0]:
-                        initial = (u["nome"].strip()[:1] or "U").upper()
-                        st.markdown(
-                            f"""
-                            <div style="
-                                width: 44px; height: 44px;
-                                border-radius: 50%;
-                                background: linear-gradient(135deg, #00E5A0, #00B884);
-                                color: #04231B; font-weight: 800; font-size: 16px;
-                                display: flex; align-items: center; justify-content: center;
-                                box-shadow: 0 2px 8px rgba(0,184,132,0.18);
-                                margin-top: 2px;
-                            ">{initial}</div>
-                            """,
-                            unsafe_allow_html=True
-                        )
-                    
-                    # Nome, Username, Perfil e Data de Criação
-                    with cols[1]:
-                        # Badge de perfil
-                        if u["role"] == "admin":
-                            badge_style = "background-color:rgba(0,184,132,0.12); color:#00805C; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; margin-left:8px;"
-                            badge_text = "Admin"
-                        else:
-                            badge_style = "background-color:rgba(124,137,133,0.10); color:#4A5752; padding:2px 8px; border-radius:10px; font-size:11px;"
-                            badge_text = "Usuário"
-                        
-                        st.markdown(
-                            f"""
-                            <div style="line-height: 1.35; padding-top: 1px;">
-                                <span style="font-size: 15px; font-weight: 700; color: #0D1B17;">{u['nome']}</span>
-                                <span style="{badge_style}">{badge_text}</span>
-                                <div style="font-size: 12px; color: #7C8985; margin-top: 3px;">
-                                    <span>@{u['username']}</span>
-                                    <span style="margin: 0 6px; opacity: 0.5;">·</span>
-                                    <span>Criado em {_format_date(u['created_at'])}</span>
-                                </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
-                    
-                    # Ações de exclusão
-                    with cols[2]:
-                        if u["username"] == current_user.get("username"):
-                            st.markdown(
-                                "<div style='font-size:11px; color:#7C8985; font-style:italic; text-align:center; padding-top:14px;'>Você</div>",
-                                unsafe_allow_html=True
-                            )
-                        else:
-                            st.button(
-                                "🗑️",
-                                key=f"del_btn_{u['username']}_{idx}",
-                                help=f"Remover usuário {u['nome']}"
-                            )
-
+    # ── Formulário — centralizado ao meio da tela, no mesmo card/estilo do
+    #    editor de registros (degradê, borda verde-água, sombra de destaque) ──
+    _, col_form, _ = st.columns([1, 2, 1])
     with col_form:
-        # Contêiner estilizado no padrão do editor de registros
         with st.container(key="form_container"):
             _render_form_group_label("✦ Identificação e Acesso")
-            
+
             # Exibe feedbacks do formulário
             form_error = st.session_state.pop("user_form_error", None)
             form_success = st.session_state.pop("user_form_success", None)
-            
+
             if form_error:
                 st.error(form_error)
             if form_success:
@@ -267,10 +163,10 @@ def render_user_manager_page() -> None:
                     "✍️ Nome completo",
                     placeholder="ex: Maria Silva"
                 )
-                
+
                 _render_form_divider()
                 _render_form_group_label("✦ Segurança e Perfil")
-                
+
                 new_password = st.text_input(
                     "🔒 Senha provisória",
                     type="password",
@@ -294,8 +190,122 @@ def render_user_manager_page() -> None:
                 )
                 if ok:
                     st.session_state["user_form_success"] = msg
-                    st.session_state.pop("confirm_delete", None) # Limpa exclusão pendente se houver
+                    st.session_state.pop("confirm_delete", None)  # Limpa exclusão pendente se houver
                     st.rerun()
                 else:
                     st.session_state["user_form_error"] = msg
                     st.rerun()
+
+    # ── Lista de usuários cadastrados — abaixo do formulário, largura total ──
+    st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
+    st.markdown("### 📋 Usuários Cadastrados")
+
+    # Mensagem de confirmação de exclusão
+    confirm_del = st.session_state.get("confirm_delete")
+    if confirm_del:
+        st.markdown(
+            f"""
+            <div style="
+                background: rgba(226, 75, 74, 0.05);
+                border: 1px solid rgba(226, 75, 74, 0.18);
+                border-radius: 12px;
+                padding: 16px 20px;
+                margin-bottom: 20px;
+            ">
+                <h4 style="margin:0 0 6px; color:#E24B4A; font-size:14px; font-weight:700;">⚠️ Confirmação de Exclusão</h4>
+                <p style="margin:0 0 12px; font-size:13px; color:#4A5752; line-height:1.5;">
+                    Tem certeza que deseja remover o usuário <b>@{confirm_del}</b>? Esta ação removerá de imediato o acesso dele ao sistema.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        c1, c2 = st.columns([1, 4])
+        with c1:
+            if st.button("Sim, remover", type="primary", key="confirm_del_yes"):
+                ok, msg = auth_db.delete_user(confirm_del)
+                if ok:
+                    st.session_state["user_form_success"] = msg
+                    st.session_state.pop("confirm_delete", None)
+                    st.rerun()
+                else:
+                    st.error(msg)
+        with c2:
+            if st.button("Cancelar", key="confirm_del_no"):
+                st.session_state.pop("confirm_delete", None)
+                st.rerun()
+        st.markdown("<hr style='margin:18px 0'>", unsafe_allow_html=True)
+
+    if not users:
+        st.info("Nenhum usuário cadastrado no sistema.")
+    else:
+        # Lista com os cartões elegantes de usuários
+        for idx, u in enumerate(users):
+            with st.container(key=f"user_card_{u['username']}"):
+                cols = st.columns([1, 7, 1])
+
+                # Avatar circular com gradiente baseado nas iniciais
+                with cols[0]:
+                    initial = (u["nome"].strip()[:1] or "U").upper()
+                    st.markdown(
+                        f"""
+                        <div style="
+                            width: 44px; height: 44px;
+                            border-radius: 50%;
+                            background: linear-gradient(135deg, #00E5A0, #00B884);
+                            color: #04231B; font-weight: 800; font-size: 16px;
+                            display: flex; align-items: center; justify-content: center;
+                            box-shadow: 0 2px 8px rgba(0,184,132,0.18);
+                            margin-top: 2px;
+                        ">{initial}</div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                # Nome, Username, Perfil e Data de Criação
+                with cols[1]:
+                    # Badge de perfil
+                    if u["role"] == "admin":
+                        badge_style = "background-color:rgba(0,184,132,0.12); color:#00805C; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; margin-left:8px;"
+                        badge_text = "Admin"
+                    else:
+                        badge_style = "background-color:rgba(124,137,133,0.10); color:#4A5752; padding:2px 8px; border-radius:10px; font-size:11px;"
+                        badge_text = "Usuário"
+
+                    st.markdown(
+                        f"""
+                        <div style="line-height: 1.35; padding-top: 1px;">
+                            <span style="font-size: 15px; font-weight: 700; color: #0D1B17;">{u['nome']}</span>
+                            <span style="{badge_style}">{badge_text}</span>
+                            <div style="font-size: 12px; color: #7C8985; margin-top: 3px;">
+                                <span>@{u['username']}</span>
+                                <span style="margin: 0 6px; opacity: 0.5;">·</span>
+                                <span>Criado em {_format_date(u['created_at'])}</span>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+                # Ações de exclusão
+                with cols[2]:
+                    if u["username"] == current_user.get("username"):
+                        st.markdown(
+                            "<div style='font-size:11px; color:#7C8985; font-style:italic; text-align:center; padding-top:14px;'>Você</div>",
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        st.button(
+                            "🗑️",
+                            key=f"del_btn_{u['username']}_{idx}",
+                            help=f"Remover usuário {u['nome']}"
+                        )
+
+
+def render_user_manager_page() -> None:
+    """Ponto de entrada público — protege a página contra falhas de banco,
+    mostrando uma mensagem amigável em vez de um traceback cru."""
+    try:
+        _render_user_manager_page_inner()
+    except DatabaseUnavailableError as exc:
+        st.error(f"⚠️ {exc}")

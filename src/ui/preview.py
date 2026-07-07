@@ -4,9 +4,14 @@ Fundo branco, acentos #00B884 / #00805C, warmth #F2F7F5.
 """
 
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 import pandas as pd
 from src.config.settings import COLS
-from src.data.cobranca_history import payment_punctuality
+
+# Servidores de hospedagem (ex.: Streamlit Cloud) costumam rodar em horário
+# americano/UTC — os relatórios impressos/pré-visualizados devem sempre
+# mostrar o horário local do Brasil, independente do fuso do servidor.
+_TZ_BR = ZoneInfo("America/Sao_Paulo")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,26 +60,22 @@ def _b(formatted: str, raw_val: float, threshold: float) -> str:
 
 def _build_rows(fdf: pd.DataFrame, thr: dict) -> str:
     d = fdf.copy()
-    d[COLS["date"]]        = d[COLS["date"]].dt.strftime("%d/%m/%Y")
-    d[COLS["pct_remonte"]] = (d[COLS["pct_remonte"]] * 100).round(2)
-    d[COLS["value_brl"]]   = d[COLS["value_brl"]].round(2)
-    d[COLS["minutes"]]     = d[COLS["minutes"]].round(2)
+    d[COLS["date"]]      = d[COLS["date"]].dt.strftime("%d/%m/%Y")
+    d[COLS["value_brl"]] = d[COLS["value_brl"]].round(2)
+    d[COLS["minutes"]]   = d[COLS["minutes"]].round(2)
 
     def _make_row(row):
         qty  = int(row[COLS["quantity"]])
         vbrl = float(row[COLS["value_brl"]])
         mins = float(row[COLS["minutes"]])
-        pct  = float(row[COLS["pct_remonte"]])
         return (
             "<tr>"
-            f"<td>{row[COLS['date']]}</td>"
-            f"<td>{int(row[COLS['order']]):,}</td>"
             f"<td class='tdl'>{row[COLS['supplier']]}</td>"
-            f"<td>{row[COLS['location']]}</td>"
-            f"<td>{row[COLS['defect']]}</td>"
+            f"<td>{int(row[COLS['order']]):,}</td>"
+            f"<td>{row[COLS['date']]}</td>"
             f"<td>{_b(f'{qty:,}', qty, thr['qty'])}</td>"
+            f"<td class='tdl'>{row[COLS['defect']]}</td>"
             f"<td>{int(row[COLS['real_cut']]):,}</td>"
-            f"<td>{pct:.2f}%</td>"
             f"<td>{_b(f'{mins:,.2f}', mins, thr['mins'])}</td>"
             f"<td>{_b(f'R$ {vbrl:,.2f}', vbrl, thr['vbrl'])}</td>"
             "</tr>"
@@ -179,18 +180,6 @@ tbody tr:nth-child(odd){background:#FFFFFF}
 tbody tr:hover{background:#E8EFEC}
 tbody td.hi,tbody td strong.hi{color:#00805C;font-weight:700}
 
-/* ── Status badges ── */
-.badge-status {
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  display: inline-block;
-}
-.status-pago { background: #00B884; color: #FFFFFF; }
-.status-pendente { background: #EF9F27; color:#FFFFFF; }
-.status-contestado { background: #D85A30; color: #FFFFFF; }
-
 /* ── Footer ── */
 .footer{
   margin-top:2rem;padding-top:1rem;
@@ -205,7 +194,7 @@ tbody td.hi,tbody td strong.hi{color:#00805C;font-weight:700}
 
   html,body,div,span,
   .card,.cards,.cards-3,.cards-5,.tw,.header,.hright,.sec,.footer,
-  table,thead,tbody,tr,th,td,.badge-status,.status-pago,.status-pendente,.status-contestado{
+  table,thead,tbody,tr,th,td{
     -webkit-print-color-adjust:exact!important;
     print-color-adjust:exact!important;
     color-adjust:exact!important;
@@ -255,15 +244,6 @@ tbody td.hi,tbody td strong.hi{color:#00805C;font-weight:700}
   }
   tbody td strong.hi{color:#00805C!important}
 
-  .badge-status{
-    -webkit-print-color-adjust:exact!important;
-    print-color-adjust:exact!important;
-    color-adjust:exact!important;
-  }
-  .status-pago{ background-color:#0D1B17 !important; color: #FFFFFF !important; }
-  .status-pendente{ background-color: #EF9F27 !important; color:#FFFFFF !important; }
-  .status-contestado{ background-color: #D85A30 !important; color: #FFFFFF !important; }
-
   th,td{padding:7px 10px}
   .footer{
     margin-top:1rem;
@@ -281,7 +261,7 @@ def _generate_html(fdf: pd.DataFrame, tdf: pd.DataFrame) -> str:
     thr        = _get_thresholds(tdf)
     rows       = _build_rows(fdf, thr)
     n          = len(fdf)
-    ts         = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ts         = datetime.now(_TZ_BR).strftime("%d/%m/%Y %H:%M")
 
     cards_html = ""
     for c in cards:
@@ -330,11 +310,10 @@ def _generate_html(fdf: pd.DataFrame, tdf: pd.DataFrame) -> str:
 <table>
   <thead>
     <tr>
-      <th>Data</th><th>Ordem</th>
       <th style="text-align:left">Fornecedor</th>
-      <th>Local</th><th>Defeito</th><th>Qtd</th>
-      <th>Real Cortado</th><th>% Remonte</th>
-      <th>Minutos</th><th>Valor (R$)</th>
+      <th>OM</th><th>Data Produção</th><th>Qtd</th>
+      <th style="text-align:left">Remonte / Defeito</th>
+      <th>Real Cortado</th><th>Min. Gerados</th><th>Valor (R$)</th>
     </tr>
   </thead>
   <tbody>{rows}</tbody>
@@ -380,7 +359,7 @@ def _generate_cobranca_html(
 ) -> str:
     n_records = len(df_sel)
     n_orders = df_sel[COLS["order"]].nunique() if COLS["order"] in df_sel.columns else 0
-    ts = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ts = datetime.now(_TZ_BR).strftime("%d/%m/%Y %H:%M")
 
     thr = _get_thresholds(df_full)
 
@@ -402,8 +381,9 @@ def _generate_cobranca_html(
             
         rows += (
             "<tr>"
-            f"<td>{dt_str}</td>"
+            f"<td class='tdl'>{supplier}</td>"
             f"<td>{int(row[COLS['order']]):,}</td>"
+            f"<td>{dt_str}</td>"
             f"<td>{_b(f'{qty:,}', qty, thr['qty'])}</td>"
             f"<td class='tdl'>{row[COLS['defect']]}</td>"
             f"<td>{int(row[COLS['real_cut']]):,}</td>"
@@ -500,9 +480,9 @@ def _generate_cobranca_html(
 <table>
   <thead>
     <tr>
-      <th>Data</th><th>OM</th><th>Qtd</th>
-      <th style="text-align:left">Remonte / Tipo de Defeito</th>
-      <th>Rel. Cortado</th><th>Min. Gerados</th><th>Valor (R$)</th>
+      <th style="text-align:left">Fornecedor</th><th>OM</th><th>Data Produção</th><th>Qtd</th>
+      <th style="text-align:left">Remonte / Defeito</th>
+      <th>Real Cortado</th><th>Min. Gerados</th><th>Valor (R$)</th>
     </tr>
   </thead>
   <tbody>{rows}</tbody>
@@ -522,18 +502,12 @@ def _generate_cobranca_html(
 # ── HTML generator for Billing History Report ─────────────────────────────────
 
 def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_desc: str) -> str:
-    ts = datetime.now().strftime("%d/%m/%Y %H:%M")
+    ts = datetime.now(_TZ_BR).strftime("%d/%m/%Y %H:%M")
     n = len(df_filtered)
     
     rows = ""
     for _, row in df_filtered.iterrows():
-        val_cobranca = row.get("Data Cobrança", "")
-        cod_lancamento = row.get("Código", "")
-        val_vencimento = row.get("Data Vencimento", "")
-        val_pagamento = row.get("Data Pagamento", "")
         supplier = row.get("Fornecedor", "")
-        cnpj = row.get("CNPJ", "")
-        status = row.get("Status", "Pendente")
         om = row.get("OM", "")
         val_prod = row.get("Data Produção", "")
         qty = row.get("Qtd", 0)
@@ -541,48 +515,10 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
         real_cortado = row.get("Real Cortado", 0)
         minutes = row.get("Min. Gerados", 0.0)
         value = row.get("Valor (R$)", 0.0)
-        
-        if isinstance(val_cobranca, pd.Timestamp):
-            val_cobranca = val_cobranca.strftime("%d/%m/%Y")
-        if isinstance(val_vencimento, pd.Timestamp):
-            val_vencimento = val_vencimento.strftime("%d/%m/%Y")
-        if isinstance(val_pagamento, pd.Timestamp):
-            val_pagamento = val_pagamento.strftime("%d/%m/%Y")
+
         if isinstance(val_prod, pd.Timestamp):
             val_prod = val_prod.strftime("%d/%m/%Y")
-        if pd.isna(val_pagamento):
-            val_pagamento = ""
 
-        st_lower = str(status).strip()
-
-        # Dias para Vencer / Situação de Pagamento:
-        #   - Pendente/Contestado -> contagem regressiva (calculada em tempo
-        #     real, não é salva no xlsx pois muda todos os dias).
-        #   - Pago -> compara a Data de Pagamento (manual) com a Data de
-        #     Vencimento e mostra se foi pago no prazo ou com atraso.
-        dias_html = ""
-        if st_lower == "Pago":
-            dias_atraso, atrasado = payment_punctuality(val_pagamento, val_vencimento)
-            if atrasado is None:
-                dias_html = '<span style="color:#D8932E;font-weight:600">Informe a data do pagamento</span>'
-            elif atrasado:
-                dias_html = f'<span style="color:#D85A30;font-weight:600">⚠️ Pago com {dias_atraso}d de atraso</span>'
-            else:
-                dias_html = '<span style="color:#1D9E75;font-weight:600">✅ Pago no prazo</span>'
-        else:
-            venc_dt = pd.to_datetime(val_vencimento, format="%d/%m/%Y", errors="coerce")
-            if pd.notna(venc_dt):
-                dias_val = (venc_dt.date() - date.today()).days
-                _dias_texto, _dias_cor = _dias_para_vencer_info(dias_val)
-                dias_html = f'<span style="color:{_dias_cor};font-weight:600">{_dias_texto}</span>'
-
-        if st_lower == "Pago":
-            status_badge = '<span class="badge-status status-pago">✅ Pago</span>'
-        elif st_lower == "Contestado":
-            status_badge = '<span class="badge-status status-contestado">⚠️ Contestado</span>'
-        else:
-            status_badge = '<span class="badge-status status-pendente">⏳ Pendente</span>'
-            
         # Formatar números de forma amigável
         try:
             qty_val = f"{int(qty):,}"
@@ -596,17 +532,10 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
             rc_val = f"{int(real_cortado):,}"
         except Exception:
             rc_val = str(real_cortado)
-            
+
         rows += (
             "<tr>"
-            f"<td style='font-family:Consolas,monospace;font-weight:600;color:#534AB7'>{cod_lancamento}</td>"
-            f"<td>{val_cobranca}</td>"
-            f"<td>{val_vencimento}</td>"
-            f"<td>{val_pagamento}</td>"
-            f"<td>{dias_html}</td>"
             f"<td class='tdl'>{supplier}</td>"
-            f"<td>{cnpj}</td>"
-            f"<td>{status_badge}</td>"
             f"<td>{om_val}</td>"
             f"<td>{val_prod}</td>"
             f"<td>{qty_val}</td>"
@@ -692,9 +621,7 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
 <table>
   <thead>
     <tr>
-      <th>Código</th><th>Data Cobrança</th><th>Vencimento</th><th>Pagamento</th><th>Situação</th>
-      <th style="text-align:left">Fornecedor</th><th>CNPJ</th>
-      <th>Status</th><th>OM</th><th>Data Produção</th><th>Qtd</th>
+      <th style="text-align:left">Fornecedor</th><th>OM</th><th>Data Produção</th><th>Qtd</th>
       <th style="text-align:left">Remonte / Defeito</th><th>Real Cortado</th>
       <th>Min. Gerados</th><th>Valor (R$)</th>
     </tr>

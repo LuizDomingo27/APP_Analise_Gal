@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Camada de dados de autenticação — tabela `usuarios`.
+Camada de dados de autenticação — tabela `UserGal` (Postgres).
 
-Vive no mesmo arquivo SQLite da aplicação (dataset/analise_gal.db) para
-persistir junto com o restante da base via o mesmo mecanismo de sync com
-o GitHub. As senhas NUNCA são armazenadas em texto puro: guardamos apenas
-o hash PBKDF2-HMAC-SHA256 com salt aleatório por usuário. A resposta da
-pergunta de segurança também é armazenada como hash.
+Vive no mesmo banco Postgres (Supabase) da aplicação. As senhas NUNCA são
+armazenadas em texto puro: guardamos apenas o hash PBKDF2-HMAC-SHA256 com
+salt aleatório por usuário. A resposta da pergunta de segurança também é
+armazenada como hash.
 
-Escopo: este módulo só toca a tabela `usuarios`. Não lê nem escreve em
+Escopo: este módulo só toca a tabela `UserGal`. Não lê nem escreve em
 registros_defeitos, historico_cobrancas ou pagamentos_concluidos.
 """
 
@@ -17,9 +16,10 @@ import re
 import secrets
 from datetime import datetime
 
-from src.config.settings import DB_PATH
+import streamlit as st
+from sqlalchemy import text
+
 from src.data.database import get_connection
-from src.data.github_sync import push_db_to_github
 
 # ── Parâmetros de hashing ─────────────────────────────────────────────────────
 _PBKDF2_ITERATIONS = 200_000
@@ -61,29 +61,27 @@ def _normalize_answer(answer: str) -> str:
 
 # ── Schema ────────────────────────────────────────────────────────────────────
 
+@st.cache_resource
 def create_users_table() -> None:
-    """Cria a tabela `usuarios` se ainda não existir. Idempotente."""
+    """Cria a tabela `UserGal` se ainda não existir. Idempotente (roda 1x/processo)."""
     with get_connection() as conn:
         conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS usuarios (
-                username             TEXT PRIMARY KEY,
-                nome                 TEXT NOT NULL,
-                senha_hash           TEXT NOT NULL,
-                salt                 TEXT NOT NULL,
-                security_question    TEXT,
-                security_answer_hash TEXT,
-                role                 TEXT NOT NULL DEFAULT 'user',
-                created_at           TEXT NOT NULL
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS "UserGal" (
+                    username             text PRIMARY KEY,
+                    nome                 text NOT NULL,
+                    senha_hash           text NOT NULL,
+                    salt                 text NOT NULL,
+                    security_question    text,
+                    security_answer_hash text,
+                    role                 text NOT NULL DEFAULT 'user',
+                    created_at           text NOT NULL
+                )
+                """
             )
-            """
         )
         conn.commit()
-
-
-def _sync() -> None:
-    """Persiste o banco no GitHub (mesmo mecanismo do restante do app)."""
-    push_db_to_github(DB_PATH)
 
 
 # ── Consultas ─────────────────────────────────────────────────────────────────
@@ -91,7 +89,7 @@ def _sync() -> None:
 def count_users() -> int:
     create_users_table()
     with get_connection() as conn:
-        row = conn.execute("SELECT COUNT(*) FROM usuarios").fetchone()
+        row = conn.execute(text('SELECT COUNT(*) FROM "UserGal"')).fetchone()
     return int(row[0]) if row else 0
 
 
@@ -102,13 +100,14 @@ def get_user(username: str) -> dict | None:
         return None
     create_users_table()
     with get_connection() as conn:
-        cur = conn.execute(
-            "SELECT username, nome, senha_hash, salt, security_question, "
-            "security_answer_hash, role, created_at "
-            "FROM usuarios WHERE username = ?",
-            (uname,),
-        )
-        row = cur.fetchone()
+        row = conn.execute(
+            text(
+                "SELECT username, nome, senha_hash, salt, security_question, "
+                "security_answer_hash, role, created_at "
+                'FROM "UserGal" WHERE username = :u'
+            ),
+            {"u": uname},
+        ).fetchone()
     if row is None:
         return None
     keys = [
@@ -123,8 +122,10 @@ def list_users() -> list[dict]:
     create_users_table()
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT username, nome, role, created_at "
-            "FROM usuarios ORDER BY username COLLATE NOCASE"
+            text(
+                "SELECT username, nome, role, created_at "
+                'FROM "UserGal" ORDER BY LOWER(username)'
+            )
         ).fetchall()
     return [
         {"username": r[0], "nome": r[1], "role": r[2], "created_at": r[3]}
@@ -180,19 +181,21 @@ def create_user(
 
     with get_connection() as conn:
         conn.execute(
-            "INSERT INTO usuarios "
-            "(username, nome, senha_hash, salt, security_question, "
-            " security_answer_hash, role, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                uname, nome, senha_hash, salt,
-                (security_question or "").strip(), answer_hash,
-                effective_role, datetime.now().isoformat(timespec="seconds"),
+            text(
+                'INSERT INTO "UserGal" '
+                "(username, nome, senha_hash, salt, security_question, "
+                " security_answer_hash, role, created_at) "
+                "VALUES (:username, :nome, :senha_hash, :salt, :sq, :sah, :role, :created_at)"
             ),
+            {
+                "username": uname, "nome": nome, "senha_hash": senha_hash,
+                "salt": salt, "sq": (security_question or "").strip(),
+                "sah": answer_hash, "role": effective_role,
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+            },
         )
         conn.commit()
 
-    _sync()
     return True, (
         f"Usuário '{uname}' criado com sucesso"
         + (" como administrador." if effective_role == "admin" else ".")
@@ -225,12 +228,11 @@ def update_password(username: str, new_password: str) -> tuple[bool, str]:
 
     with get_connection() as conn:
         conn.execute(
-            "UPDATE usuarios SET senha_hash = ?, salt = ? WHERE username = ?",
-            (senha_hash, salt, user["username"]),
+            text('UPDATE "UserGal" SET senha_hash = :h, salt = :s WHERE username = :u'),
+            {"h": senha_hash, "s": salt, "u": user["username"]},
         )
         conn.commit()
 
-    _sync()
     return True, "Senha redefinida com sucesso."
 
 
@@ -271,13 +273,14 @@ def reset_password_with_answer(
 
     with get_connection() as conn:
         conn.execute(
-            "UPDATE usuarios SET senha_hash = ?, salt = ?, "
-            "security_answer_hash = ? WHERE username = ?",
-            (senha_hash, salt, answer_hash, user["username"]),
+            text(
+                'UPDATE "UserGal" SET senha_hash = :h, salt = :s, '
+                "security_answer_hash = :sah WHERE username = :u"
+            ),
+            {"h": senha_hash, "s": salt, "sah": answer_hash, "u": user["username"]},
         )
         conn.commit()
 
-    _sync()
     return True, "Senha redefinida com sucesso. Você já pode entrar."
 
 
@@ -291,14 +294,16 @@ def delete_user(username: str) -> tuple[bool, str]:
         create_users_table()
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM usuarios WHERE role = 'admin'"
+                text('SELECT COUNT(*) FROM "UserGal" WHERE role = \'admin\'')
             ).fetchone()
         if row and int(row[0]) <= 1:
             return False, "Não é possível remover o único administrador."
 
     with get_connection() as conn:
-        conn.execute("DELETE FROM usuarios WHERE username = ?", (user["username"],))
+        conn.execute(
+            text('DELETE FROM "UserGal" WHERE username = :u'),
+            {"u": user["username"]},
+        )
         conn.commit()
 
-    _sync()
     return True, f"Usuário '{user['username']}' removido."
