@@ -4,4 +4,6 @@ altair>=5.0.0
 openpyxl>=3.1.0
 xlrd>=2.0.1
 reportlab>=4.0.0
-PyGithub>=2.3.0
+tzdata>=2024.1
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9

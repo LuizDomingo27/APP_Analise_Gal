@@ -28,7 +28,6 @@ st.set_page_config(
 from src.config.settings import COLS, COLORS
 from src.data.cobranca_history import HISTORY_LABELS, payment_punctuality
 from src.data.payment_history import load_payments, generate_payments_xlsx_bytes
-from src.config.settings import DB_PATH
 from src.auth.session import require_login, render_user_sidebar
 
 # ── CSS global — mesma identidade visual das outras páginas ─────────────────
@@ -188,7 +187,6 @@ def main() -> None:
     df_view.rename(columns=HISTORY_LABELS, inplace=True)
 
     cod_label  = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
-    dte_label  = HISTORY_LABELS.get("DATA_COBRANCA",   "Data Cobrança")
     venc_label = HISTORY_LABELS.get("DATA_VENCIMENTO", "Data Vencimento")
     pag_label  = HISTORY_LABELS.get("DATA_PAGAMENTO",  "Data Pagamento")
     sup_label  = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
@@ -398,9 +396,8 @@ def main() -> None:
         '<hr style="border-color:rgba(0,0,0,0.06);margin:16px 0">',
         unsafe_allow_html=True,
     )
-    _db_ok   = DB_PATH.exists()
-    ok_color = "#00E5A0" if _db_ok else "#EF9F27"
-    ok_txt   = "Banco SQLite presente" if _db_ok else "Banco ainda não criado"
+    ok_color = "#00E5A0"
+    ok_txt   = "Banco Postgres (Supabase) conectado"
     st.sidebar.markdown(
         f'<div style="font-size:10.5px;color:{ok_color};padding:6px 8px;'
         f'border-radius:6px;background:rgba(0,229,160,0.06);'

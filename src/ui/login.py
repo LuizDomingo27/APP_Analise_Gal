@@ -12,6 +12,7 @@ import streamlit as st
 
 from src.auth import auth_db
 from src.auth import session
+from src.data.database import DatabaseUnavailableError
 
 # Perguntas de segurança pré-definidas (usadas no cadastro e no reset).
 SECURITY_QUESTIONS = [
@@ -281,23 +282,26 @@ def _render_reset_tab() -> None:
 
 def render_login_screen() -> None:
     """Renderiza a tela de login em tela cheia (chamada pelo require_login)."""
-    auth_db.create_users_table()
-    _inject_login_css()
+    try:
+        auth_db.create_users_table()
+        _inject_login_css()
 
-    with st.container(key="login_card"):
-        _render_brand()
-        flash = st.session_state.pop("auth_flash", None)
-        if flash:
-            st.success(flash)
-        tab_login, tab_signup, tab_reset = st.tabs(
-            ["🔑 Entrar", "🆕 Criar Conta", "❓ Esqueci a Senha"]
-        )
-        with tab_login:
-            _render_login_tab()
-        with tab_signup:
-            _render_signup_tab()
-        with tab_reset:
-            _render_reset_tab()
+        with st.container(key="login_card"):
+            _render_brand()
+            flash = st.session_state.pop("auth_flash", None)
+            if flash:
+                st.success(flash)
+            tab_login, tab_signup, tab_reset = st.tabs(
+                ["🔑 Entrar", "🆕 Criar Conta", "❓ Esqueci a Senha"]
+            )
+            with tab_login:
+                _render_login_tab()
+            with tab_signup:
+                _render_signup_tab()
+            with tab_reset:
+                _render_reset_tab()
+    except DatabaseUnavailableError as exc:
+        st.error(f"⚠️ {exc}")
 
     st.markdown(
         "<div style='text-align:center;margin-top:16px;font-size:11px;color:#7C8985'>"

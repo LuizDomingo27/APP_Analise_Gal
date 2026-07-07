@@ -2,8 +2,8 @@
 Data loading layer.
 
 Hierarquia de carregamento:
-  1. load_data_from_disk()   → lê registros_defeitos do SQLite (startup normal)
-  2. append_new_data()       → valida + deduplica + insere registros no SQLite
+  1. load_data_from_disk()   → lê registros_defeitos do Postgres (startup normal)
+  2. append_new_data()       → valida + deduplica + insere registros no Postgres
   3. load_data_from_upload() → fallback sem persistência (primeira importação)
 """
 
@@ -11,10 +11,10 @@ import io
 
 import pandas as pd
 import streamlit as st
+from sqlalchemy import text
 
-from src.config.settings import COLS, DB_PATH, DATASET_DIR
+from src.config.settings import COLS
 from src.data.database import create_tables, get_connection
-from src.data.github_sync import push_db_to_github
 
 
 # ── Público: carregamento do banco ────────────────────────────────────────────
@@ -22,15 +22,14 @@ from src.data.github_sync import push_db_to_github
 @st.cache_data
 def load_data_from_disk() -> pd.DataFrame | None:
     """
-    Lê todos os registros da tabela registros_defeitos do SQLite.
-    Retorna DataFrame limpo, ou None se o banco não existir ou estiver vazio.
+    Lê todos os registros da tabela registros_defeitos do Postgres.
+    Retorna DataFrame limpo, ou None se a base estiver vazia.
     """
-    if not DB_PATH.exists():
-        return None
     try:
         create_tables()
         with get_connection() as conn:
             df = pd.read_sql("SELECT * FROM registros_defeitos", conn)
+        df = df.drop(columns=["id"], errors="ignore")
         if df.empty:
             return None
         df = _cast_types(df)
@@ -43,7 +42,8 @@ def load_data_from_disk() -> pd.DataFrame | None:
 def append_new_data(uploaded_file) -> dict | None:
     """
     Recebe um UploadedFile com novos registros, valida, deduplica por data e
-    insere os registros novos na tabela registros_defeitos. Sincroniza com GitHub.
+    insere os registros novos na tabela registros_defeitos. A persistência é
+    imediata no Postgres (sem sync externo).
 
     Retorna dict com:
         added      → int — registros novos inseridos
@@ -63,14 +63,13 @@ def append_new_data(uploaded_file) -> dict | None:
         st.error(f"❌ Erro ao ler arquivo: {exc}")
         return None
 
-    DATASET_DIR.mkdir(parents=True, exist_ok=True)
     create_tables()
 
     date_col = COLS["date"]
 
     with get_connection() as conn:
         rows = conn.execute(
-            'SELECT DISTINCT "DATA DE PRODUÇÃO ACABAMENTO" FROM registros_defeitos'
+            text('SELECT DISTINCT "DATA DE PRODUÇÃO ACABAMENTO" FROM registros_defeitos')
         ).fetchall()
         existing_dates = {r[0] for r in rows if r[0]}
 
@@ -82,19 +81,19 @@ def append_new_data(uploaded_file) -> dict | None:
         if not df_to_add.empty:
             df_to_add[date_col] = df_to_add[date_col].dt.strftime("%Y-%m-%d")
             df_to_add.to_sql("registros_defeitos", conn, if_exists="append", index=False)
-            conn.commit()
 
         total = conn.execute(
-            "SELECT COUNT(*) FROM registros_defeitos"
+            text("SELECT COUNT(*) FROM registros_defeitos")
         ).fetchone()[0]
 
+        conn.commit()
+
     load_data_from_disk.clear()
-    push_db_to_github(DB_PATH)
 
     return {
         "added":      int(len(df_to_add)),
         "duplicates": duplicates,
-        "total":      total,
+        "total":      int(total),
     }
 
 
