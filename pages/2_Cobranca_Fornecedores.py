@@ -24,6 +24,7 @@ st.set_page_config(
 from src.config.settings import COLORS
 from src.ui.cobranca import render_cobranca_page
 from src.auth.session import require_login, render_user_sidebar
+from src.ui.error_boundary import page_guard
 
 # CSS consistente com a identidade visual do app principal
 st.markdown(
@@ -136,6 +137,7 @@ def _render_sidebar_info(total_records: int) -> None:
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
+@page_guard
 def main() -> None:
     require_login()
     render_user_sidebar()

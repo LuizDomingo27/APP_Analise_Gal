@@ -29,6 +29,7 @@ from src.config.settings import COLS, COLORS
 from src.data.cobranca_history import HISTORY_LABELS, payment_punctuality
 from src.data.payment_history import load_payments, generate_payments_xlsx_bytes
 from src.auth.session import require_login, render_user_sidebar
+from src.ui.error_boundary import page_guard
 
 # ── CSS global — mesma identidade visual das outras páginas ─────────────────
 st.markdown(
@@ -122,6 +123,7 @@ def _kpi_card(col, icon: str, label: str, value: str, accent: str) -> None:
         )
 
 
+@page_guard
 def main() -> None:
     require_login()
     render_user_sidebar()
