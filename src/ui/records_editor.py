@@ -61,16 +61,32 @@ _EDIT_COL_LABELS = {
 _LEFT_ALIGN_LABELS = {"Fornecedor", "Material", "Local", "Remonte", "Remonte / Tipo de Defeito"}
 
 
+_TAB_UNIFY = "🔤 Unificar Valores"
+_TAB_EDIT = "📝 Editar Registros"
+
+
 def render_records_editor_page() -> None:
     _render_header()
 
-    tab_unify, tab_edit = st.tabs(["🔤 Unificar Valores", "📝 Editar Registros"])
+    # IMPORTANTE: usamos st.segmented_control com renderização CONDICIONAL em vez
+    # de st.tabs. O st.tabs executa o corpo de TODAS as abas em cada rerun (só
+    # esconde a inativa via CSS), o que fazia a tabela/formulário da aba "Editar
+    # Registros" ser processada e vazar para a tela ao interagir com a aba
+    # "Unificar Valores". Com o seletor condicional, apenas a aba ativa roda.
+    _render_tabs_css()
+    active_tab = st.segmented_control(
+        "Ferramenta",
+        options=[_TAB_UNIFY, _TAB_EDIT],
+        default=_TAB_UNIFY,
+        key="records_editor_active_tab",
+        label_visibility="collapsed",
+    )
 
-    with tab_unify:
-        _render_unify_tab()
-
-    with tab_edit:
+    if active_tab == _TAB_EDIT:
         _render_individual_edit_tab()
+    else:
+        # None (aba desmarcada) ou Unificar → mantém o comportamento padrão.
+        _render_unify_tab()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -448,6 +464,52 @@ def _render_individual_edit_tab() -> None:
                     st.rerun()
                 else:
                     st.error("Não foi possível salvar a alteração.")
+
+
+def _render_tabs_css() -> None:
+    """Estiliza o st.segmented_control como abas na identidade verde-água do app:
+    abas inativas em branco com borda verde; aba ativa em gradiente verde-água."""
+    st.markdown(
+        f"""
+        <style>
+        div[data-testid="stSegmentedControl"] {{ margin-bottom: 6px; }}
+        div[data-testid="stSegmentedControl"] > div {{
+            gap: 8px !important;
+            width: 100% !important;
+        }}
+        div[data-testid="stSegmentedControl"] button {{
+            flex: 1 1 0 !important;
+            background: #FFFFFF !important;
+            border: 1px solid rgba(0,184,132,0.30) !important;
+            border-radius: 10px !important;
+            padding: 8px 14px !important;
+            transition: all 0.18s ease !important;
+        }}
+        div[data-testid="stSegmentedControl"] button p {{
+            color: {COLORS['text_muted']} !important;
+            font-size: 13px !important;
+            font-weight: 600 !important;
+        }}
+        div[data-testid="stSegmentedControl"] button:hover {{
+            border-color: #00B884 !important;
+            background: rgba(0,229,160,0.06) !important;
+        }}
+        div[data-testid="stSegmentedControl"] button:hover p {{
+            color: {COLORS['text_primary']} !important;
+        }}
+        div[data-testid="stSegmentedControl"] button[aria-checked="true"] {{
+            background: linear-gradient(135deg, #00E5A0, #00B884) !important;
+            border-color: #00B884 !important;
+            box-shadow: 0 2px 10px rgba(0,184,132,0.22) !important;
+        }}
+        div[data-testid="stSegmentedControl"] button[aria-checked="true"] p {{
+            color: #04231B !important;
+            font-weight: 700 !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _render_section_label(text: str) -> None:
