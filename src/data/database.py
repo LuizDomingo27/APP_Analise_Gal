@@ -220,6 +220,25 @@ _DDL_STATEMENTS = [
         "VALOR DO PROCESSO BRL"         double precision
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS devolucoes (
+        id                              bigserial PRIMARY KEY,
+        "COD_LANCAMENTO"                text,
+        "DATA_COBRANCA"                 text,
+        "DATA_VENCIMENTO"               text,
+        "DATA_PAGAMENTO"                text,
+        "CNPJ_FORNECEDOR"               text,
+        "STATUS_COBRANCA"               text,
+        "ORDEM MESTRE"                  text,
+        "DATA DE PRODUÇÃO ACABAMENTO"   text,
+        "FORNECEDOR"                    text,
+        "QUANTIDADE"                    integer,
+        "REMONTE"                       text,
+        "REAL CORTADO"                  text,
+        "MINUTOS GERADOS"               double precision,
+        "VALOR DO PROCESSO BRL"         double precision
+    )
+    """,
 ]
 
 

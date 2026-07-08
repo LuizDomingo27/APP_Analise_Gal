@@ -60,6 +60,19 @@ def require_login() -> dict:
     st.stop()
 
 
+def require_admin() -> dict:
+    """
+    Garante que há um usuário autenticado E com papel de administrador.
+    Usuários comuns recebem uma mensagem de acesso negado e a página é
+    interrompida (st.stop()). Retorna o usuário logado.
+    """
+    user = require_login()
+    if user.get("role") != "admin":
+        st.error("Acesso negado. Esta página é restrita a administradores.")
+        st.stop()
+    return user
+
+
 # ── Barra lateral: usuário logado ─────────────────────────────────────────────
 
 def render_user_sidebar() -> None:

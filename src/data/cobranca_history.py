@@ -25,7 +25,7 @@ _BASE_DIR   = Path(__file__).resolve().parents[2]
 BD_COBRANCA = DATASET_DIR / "bd_cobranca.xlsx"   # usado apenas como referência de nome
 
 # ── Valores válidos de status ─────────────────────────────────────────────────
-STATUS_OPTIONS = ["Pendente", "Pago", "Contestado"]
+STATUS_OPTIONS = ["Pendente", "Pago", "Devolução"]
 STATUS_DEFAULT = "Pendente"
 
 # ── Paleta ────────────────────────────────────────────────────────────────────
@@ -37,9 +37,9 @@ _GRAY_BORDER  = "C8C0F0"
 _TEXT_LIGHT   = "C8C0F0"
 
 _STATUS_COLORS = {
-    "Pago":       {"bg": "1D9E75", "fg": "FFFFFF"},
-    "Pendente":   {"bg": "EF9F27", "fg": "1A1530"},
-    "Contestado": {"bg": "D85A30", "fg": "FFFFFF"},
+    "Pago":      {"bg": "1D9E75", "fg": "FFFFFF"},
+    "Pendente":  {"bg": "EF9F27", "fg": "1A1530"},
+    "Devolução": {"bg": "0F86A3", "fg": "FFFFFF"},
 }
 
 _HEADER_OFFSET = 4
@@ -119,8 +119,8 @@ def status_badge_html(status: str) -> str:
     s = str(status).strip()
     if s == "Pago":
         return '<span class="badge-status status-pago">✅ Pago</span>'
-    if s == "Contestado":
-        return '<span class="badge-status status-contestado">⚠️ Contestado</span>'
+    if s == "Devolução":
+        return '<span class="badge-status status-devolucao">🔄 Devolução</span>'
     return '<span class="badge-status status-pendente">⏳ Pendente</span>'
 
 
@@ -128,7 +128,7 @@ def situacao_badge_html(status: str, data_vencimento, data_pagamento) -> str:
     """
     Badge de situação do lançamento:
       - Pago -> compara Data de Pagamento x Data de Vencimento (pontualidade).
-      - Pendente/Contestado -> contagem regressiva até o vencimento.
+      - Pendente -> contagem regressiva até o vencimento.
     """
     s = str(status).strip()
     if s == "Pago":
@@ -247,6 +247,10 @@ def update_lancamento_status(
     """
     Atualiza o status de todos os itens de um lançamento.
     Quando novo_status == "Pago": move atomicamente para pagamentos_concluidos.
+    Quando novo_status == "Devolução": move atomicamente para devolucoes — a
+    oficina optou por consertar as peças com defeito em vez de pagar o
+    desconto, então elas saem do fluxo de cobrança e vão para o controle
+    de devolução (mesma regra de remoção usada para "Pago").
     """
     if novo_status not in STATUS_OPTIONS:
         return False
@@ -276,6 +280,22 @@ def update_lancamento_status(
                 df_pago = df_pago.drop(columns=["id"], errors="ignore")
 
                 df_pago.to_sql("pagamentos_concluidos", conn, if_exists="append", index=False)
+                conn.execute(
+                    text('DELETE FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
+                    {"cod": cod_lancamento},
+                )
+            elif novo_status == "Devolução":
+                df_dev = pd.read_sql(
+                    text('SELECT * FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
+                    conn,
+                    params={"cod": cod_lancamento},
+                )
+                df_dev[COLS["status"]]   = "Devolução"
+                df_dev["DATA_PAGAMENTO"] = ""
+                # `id` é PK auto-gerada em devolucoes; não reinserir a de origem.
+                df_dev = df_dev.drop(columns=["id"], errors="ignore")
+
+                df_dev.to_sql("devolucoes", conn, if_exists="append", index=False)
                 conn.execute(
                     text('DELETE FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
                     {"cod": cod_lancamento},
@@ -322,6 +342,38 @@ def migrate_paid_to_payments() -> int:
         conn.commit()
 
     count = len(df_pago)
+    st.cache_data.clear()
+    return count
+
+
+def migrate_contestado_to_devolucao() -> int:
+    """
+    Compatibilidade: a opção de status "Contestado" foi substituída por
+    "Devolução". Move lançamentos com o status legado "Contestado" que
+    porventura ainda estejam em historico_cobrancas para devolucoes,
+    seguindo a mesma regra da opção atual. Idempotente.
+    """
+    create_tables()
+
+    with get_connection() as conn:
+        df_legado = pd.read_sql(
+            text('SELECT * FROM historico_cobrancas WHERE "STATUS_COBRANCA" = \'Contestado\''),
+            conn,
+        )
+        if df_legado.empty:
+            return 0
+
+        df_legado[COLS["status"]]   = "Devolução"
+        df_legado["DATA_PAGAMENTO"] = ""
+        # `id` é PK auto-gerada em devolucoes; não reinserir a de origem.
+        df_legado = df_legado.drop(columns=["id"], errors="ignore")
+        df_legado.to_sql("devolucoes", conn, if_exists="append", index=False)
+        conn.execute(
+            text('DELETE FROM historico_cobrancas WHERE "STATUS_COBRANCA" = \'Contestado\'')
+        )
+        conn.commit()
+
+    count = len(df_legado)
     st.cache_data.clear()
     return count
 

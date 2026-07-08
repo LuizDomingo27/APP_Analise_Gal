@@ -23,8 +23,8 @@ def test_status_badge_html_pago():
     assert "Pago" in ch.status_badge_html("Pago")
 
 
-def test_status_badge_html_contestado():
-    assert "Contestado" in ch.status_badge_html("Contestado")
+def test_status_badge_html_devolucao():
+    assert "Devolução" in ch.status_badge_html("Devolução")
 
 
 def test_status_badge_html_pendente():
@@ -192,3 +192,84 @@ def test_generate_single_charge_xlsx_bytes_scopes_to_one_charge(temp_db):
     # Só os 2 itens do lançamento pedido devem aparecer (nada do outro código).
     assert all_codes_in_sheet.count("PAG-AAAA1111") == 2
     assert "PAG-BBBB2222" not in all_codes_in_sheet
+
+
+# ── STATUS_OPTIONS ──────────────────────────────────────────────────────────────
+
+def test_status_options_uses_devolucao_not_contestado():
+    assert ch.STATUS_OPTIONS == ["Pendente", "Pago", "Devolução"]
+    assert "Contestado" not in ch.STATUS_OPTIONS
+
+
+# ── update_lancamento_status: fluxo de Devolução ────────────────────────────────
+
+def test_update_lancamento_status_devolucao_moves_row_to_devolucoes(temp_db):
+    _insert_item(temp_db, "PAG-DEV0001", "11.111.111/0001-11", "Fornecedor A",
+                 "Pendente", "100", 10, "PONTO ESTOURADO", 10, 5.0, 50.0)
+
+    ok = ch.update_lancamento_status("PAG-DEV0001", "Devolução")
+    assert ok is True
+
+    with db.get_connection() as conn:
+        remaining = conn.execute(
+            text('SELECT COUNT(*) FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
+            {"cod": "PAG-DEV0001"},
+        ).scalar()
+        moved = conn.execute(
+            text('SELECT "STATUS_COBRANCA", "DATA_PAGAMENTO" FROM devolucoes WHERE "COD_LANCAMENTO" = :cod'),
+            {"cod": "PAG-DEV0001"},
+        ).fetchone()
+
+    assert remaining == 0
+    assert moved is not None
+    assert moved[0] == "Devolução"
+    assert moved[1] == ""
+
+
+def test_update_lancamento_status_devolucao_returns_false_for_unknown_code(temp_db):
+    assert ch.update_lancamento_status("PAG-NAOEXISTE", "Devolução") is False
+
+
+def test_update_lancamento_status_rejects_status_outside_status_options(temp_db):
+    _insert_item(temp_db, "PAG-DEV0002", "11.111.111/0001-11", "Fornecedor A",
+                 "Pendente", "100", 10, "PONTO ESTOURADO", 10, 5.0, 50.0)
+    # "Contestado" não é mais uma opção válida de status.
+    assert ch.update_lancamento_status("PAG-DEV0002", "Contestado") is False
+
+
+# ── migrate_contestado_to_devolucao: compatibilidade com dados legados ─────────
+
+def test_migrate_contestado_to_devolucao_moves_legacy_rows(temp_db):
+    _insert_item(temp_db, "PAG-LEG0001", "22.222.222/0001-22", "Fornecedor B",
+                 "Contestado", "200", 3, "TROCAR", 3, 1.0, 30.0)
+
+    moved = ch.migrate_contestado_to_devolucao()
+    assert moved == 1
+
+    with db.get_connection() as conn:
+        remaining = conn.execute(
+            text('SELECT COUNT(*) FROM historico_cobrancas WHERE "STATUS_COBRANCA" = \'Contestado\'')
+        ).scalar()
+        dev_row = conn.execute(
+            text('SELECT "STATUS_COBRANCA" FROM devolucoes WHERE "COD_LANCAMENTO" = :cod'),
+            {"cod": "PAG-LEG0001"},
+        ).fetchone()
+
+    assert remaining == 0
+    assert dev_row is not None
+    assert dev_row[0] == "Devolução"
+
+
+def test_migrate_contestado_to_devolucao_is_idempotent(temp_db):
+    _insert_item(temp_db, "PAG-LEG0002", "22.222.222/0001-22", "Fornecedor B",
+                 "Contestado", "200", 3, "TROCAR", 3, 1.0, 30.0)
+
+    first  = ch.migrate_contestado_to_devolucao()
+    second = ch.migrate_contestado_to_devolucao()
+
+    assert first == 1
+    assert second == 0
+
+
+def test_migrate_contestado_to_devolucao_noop_when_no_legacy_rows(temp_db):
+    assert ch.migrate_contestado_to_devolucao() == 0
