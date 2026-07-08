@@ -21,6 +21,7 @@ from src.data.cobranca_history import (
     save_charge_to_history,
 )
 from src.utils.cnpj_validator import validate_cnpj, format_cnpj
+from src.auth.session import is_admin
 import base64
 import streamlit.components.v1 as components
 from src.ui.preview import _generate_cobranca_html
@@ -279,6 +280,8 @@ def _show_preview_dialog(
             type="primary",
             use_container_width=True,
             key="preview_confirm",
+            disabled=not is_admin(),
+            help=None if is_admin() else "Apenas administradores podem lançar cobranças.",
         ):
             st.session_state["_preview_confirmed"] = True
             st.rerun()
@@ -413,20 +416,28 @@ def _mini_kpi(col, label: str, value: str, accent: str) -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_cobranca_page(df: pd.DataFrame) -> None:
-    # ── Configurações na Sidebar ──────────────────────────────────────────────
-    st.sidebar.markdown(
-        '<p style="font-size:11px;text-transform:uppercase;letter-spacing:1px;'
-        'color:#4A5752;margin-top:15px;margin-bottom:5px">⚙️ Configurações</p>',
-        unsafe_allow_html=True,
-    )
-    charge_threshold = st.sidebar.number_input(
-        "Limite de Cobrança (R$)",
-        min_value=0.0,
-        value=CHARGE_THRESHOLD,
-        step=50.0,
-        format="%.2f",
-        help="Apenas fornecedores com valor total de desconto acumulado acima deste limite serão listados para cobrança."
-    )
+    # ── Configurações — inline (esta aba não tem uma sidebar dedicada,
+    # pois convive com as abas de Histórico e Pagamentos na mesma página) ──────
+    col_cfg, col_info = st.columns([1, 2])
+    with col_cfg:
+        charge_threshold = st.number_input(
+            "Limite de Cobrança (R$)",
+            min_value=0.0,
+            value=CHARGE_THRESHOLD,
+            step=50.0,
+            format="%.2f",
+            help="Apenas fornecedores com valor total de desconto acumulado acima deste limite serão listados para cobrança.",
+            key="cobranca_charge_threshold",
+        )
+    with col_info:
+        st.markdown(
+            f"""
+            <div style="margin-top:1.8rem;font-size:11px;color:{COLORS.get('text_subtle', '#7C8985')}">
+                🗃️ {len(df):,} registros na base
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     _render_page_header(charge_threshold)
 
@@ -915,6 +926,9 @@ def _render_charge_button(
 
     # ── Processar confirmação vinda do modal ──────────────────────────────────
     if st.session_state.pop("_preview_confirmed", False):
+        if not is_admin():
+            st.error("Acesso negado: apenas administradores podem lançar cobranças.")
+            return
         with st.spinner("Salvando cobrança e atualizando base de dados…"):
             # 1. Prepara df para exportação
             df_export = df_records[[c for c in _DISPLAY_COLS if c in df_records.columns]].copy()
@@ -1072,7 +1086,13 @@ def _render_charge_button(
                 )
 
         st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-        if st.button("↺ Relançar / Emitir Novo Documento", key=f"relaunch_{charge_id}", use_container_width=True):
+        if st.button(
+            "↺ Relançar / Emitir Novo Documento",
+            key=f"relaunch_{charge_id}",
+            use_container_width=True,
+            disabled=not is_admin(),
+            help=None if is_admin() else "Apenas administradores podem relançar cobranças.",
+        ):
             st.session_state.pop(charge_key, None)
             st.session_state.pop(charge_doc_key, None)
             st.session_state.pop(f"charge_html_{charge_id}", None)
@@ -1136,6 +1156,8 @@ def _render_charge_button(
             type="primary",
             use_container_width=True,
             key=f"launch_{charge_id}",
+            disabled=not is_admin(),
+            help=None if is_admin() else "Apenas administradores podem lançar cobranças.",
         ):
             st.session_state["_preview_confirmed"] = True
             st.rerun()

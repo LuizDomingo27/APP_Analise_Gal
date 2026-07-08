@@ -67,11 +67,12 @@ Ao fazer upload de um novo lote de dados através da sidebar:
   4. Os dados cobrados são removidos de `bd_principal.xlsx` e movidos para o histórico `bd_cobranca.xlsx`.
 
 ### 4. Controle de Status de Cobrança
-Cada cobrança efetuada possui um status de pagamento registrado no histórico (`bd_cobranca.xlsx`):
+Cada cobrança efetuada possui um status registrado no histórico:
 - `Pendente` (Padrão)
-- `Pago`
-- `Contestado`
-Esse status pode ser alterado diretamente na tabela editável da página de Histórico de Cobrança.
+- `Pago` — ao ser marcada como Pago, a cobrança sai do Histórico e é movida para a aba **Pagamentos Concluídos**.
+- `Devolução` — quando a oficina fornecedora prefere consertar as peças com defeito em vez de pagar o desconto; a cobrança sai do Histórico e é movida para a aba **Devolução**.
+
+Esse status pode ser alterado diretamente no painel da página de Histórico de Cobrança.
 
 ---
 

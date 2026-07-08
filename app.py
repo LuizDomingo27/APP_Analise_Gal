@@ -18,7 +18,7 @@ from src.data.processor import DataProcessor
 from src.ui.filters import render_filters
 from src.ui.metrics import render_metrics, render_insights
 from src.ui.layout import render_charts
-from src.auth.session import require_login, render_user_sidebar
+from src.auth.session import require_login, render_user_sidebar, is_admin
 from src.ui.error_boundary import page_guard
 
 # ── Page config (must be first Streamlit call) ────────────────────────────────
@@ -400,6 +400,12 @@ def _render_first_upload_sidebar() -> None:
 
 
 def _render_upload_placeholder() -> None:
+    descricao = (
+        "Faça o upload da planilha histórica pela barra lateral.<br>"
+        "Ela será salva automaticamente e carregada a cada acesso."
+        if is_admin()
+        else "Aguarde um administrador realizar a carga inicial da base de dados."
+    )
     st.markdown(
         f"""
         <div style="
@@ -416,8 +422,7 @@ def _render_upload_placeholder() -> None:
                 font-size:13px; color:{COLORS['text_subtle']};
                 margin:0; max-width:340px; line-height:1.6;
             ">
-                Faça o upload da planilha histórica pela barra lateral.<br>
-                Ela será salva automaticamente e carregada a cada acesso.
+                {descricao}
             </p>
         </div>
         """,
@@ -457,7 +462,8 @@ def main() -> None:
     # ── Sem dados: base ainda não existe → pede carga inicial ─────────────────
     if "df" not in st.session_state:
         _header()
-        _render_first_upload_sidebar()
+        if is_admin():
+            _render_first_upload_sidebar()
         _render_upload_placeholder()
         return
 
@@ -466,9 +472,10 @@ def main() -> None:
 
     _header(total_records=len(df))
 
-    # Sidebar: filtros + expander de importação
+    # Sidebar: filtros + expander de importação (apenas administradores)
     filtered_df = render_filters(df)
-    _render_import_sidebar(df_total_rows=len(df))
+    if is_admin():
+        _render_import_sidebar(df_total_rows=len(df))
 
     if filtered_df.empty:
         st.warning("⚠️ Nenhum registro encontrado com os filtros aplicados. Ajuste-os na barra lateral.")

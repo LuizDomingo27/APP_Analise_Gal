@@ -1,15 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-Pagina: Historico de Cobracas — bd_cobranca.xlsx
-Registro acumulado de todas as cobracas confirmadas.
+Pagina: Historico de Cobrancas — consolida em abas as 4 telas de cobranca:
+  1) Historico de Cobrancas  (bd_cobranca.xlsx / tabela cobrancas)
+  2) Cobranca de Fornecedores
+  3) Pagamentos Concluidos   (tabela pagamentos_concluidos)
+  4) Devolucao               (tabela devolucoes)
 
-Recursos:
-  - 5 cards KPI: total pecas com defeito, defeitos (linhas), minutos, valor, ordens unicas
-  - Filtros por intervalo de datas, fornecedor / CNPJ e STATUS
-  - Tabela interativa editável (coluna Status inline)
-  - Botão "Salvar alterações de status" com confirmação
-  - Botao Baixar Excel
-  - Botao Imprimir PDF (reportlab: tabela + KPIs de resumo)
+CHANGELOG v15.0:
+  - Adicionada aba Devolucao: a opcao de status "Contestado" foi substituida
+    por "Devolucao" (a oficina fornecedora opta por consertar as pecas com
+    defeito em vez de pagar o desconto). Ao marcar um lancamento como
+    Devolucao ele sai do Historico e e movido para a tabela devolucoes,
+    seguindo a mesma regra ja usada para "Pago" -> pagamentos_concluidos.
+
+CHANGELOG v14.0:
+  - Consolidacao: Cobranca de Fornecedores e Pagamentos Concluidos deixaram
+    de ser paginas proprias na sidebar e passaram a ser abas (st.tabs) desta
+    pagina, reduzindo a navegacao multi-pagina. Cada aba calcula seus proprios
+    totais/KPIs de forma independente, portanto os cards sempre refletem os
+    dados da aba selecionada.
 
 CHANGELOG v13.0:
   - Adicionado: campo STATUS_COBRANCA (Pendente / Pago / Contestado)
@@ -37,16 +46,21 @@ from src.data.cobranca_history import (
     load_history,
     update_lancamento_status,
     migrate_paid_to_payments,
+    migrate_contestado_to_devolucao,
     generate_history_xlsx_bytes,
     generate_single_charge_xlsx_bytes,
     group_charges,
     status_badge_html,
     situacao_badge_html,
+    payment_punctuality,
 )
+from src.data.payment_history import load_payments, generate_payments_xlsx_bytes
+from src.data.devolucao_history import load_devolucoes, generate_devolucoes_xlsx_bytes
+from src.ui.cobranca import render_cobranca_page
 import base64
 import streamlit.components.v1 as components
 from src.ui.preview import _generate_historico_html
-from src.auth.session import require_login, render_user_sidebar
+from src.auth.session import require_login, render_user_sidebar, is_admin
 from src.ui.error_boundary import page_guard
 
 # ── CSS global ────────────────────────────────────────────────────────────────
@@ -81,6 +95,18 @@ st.markdown(
         background: rgba(0,229,160,0.28) !important;
         border-color: rgba(0,229,160,0.6) !important;
     }
+    .stButton > button[kind="primary"] {
+        background: rgba(194,57,43,0.85) !important;
+        color: #FFFFFF !important;
+        border: 1px solid rgba(194,57,43,0.6) !important;
+        font-weight: 600 !important;
+        font-size: 13px !important;
+        height: auto !important;
+        min-width: 0 !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background: rgba(194,57,43,1.0) !important;
+    }
     [data-testid="stDownloadButton"] > button {
         height: 38px !important;
         min-width: 160px !important;
@@ -89,14 +115,30 @@ st.markdown(
         border-radius: 6px !important;
         padding: 0 20px !important;
     }
+    [data-testid="stExpander"] {
+        background: rgba(0,0,0,0.02) !important;
+        border: 1px solid rgba(0,0,0,0.07) !important;
+        border-radius: 10px !important;
+    }
     [data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
     hr { border-color: rgba(0,0,0,0.06) !important; }
+
+    /* ── Abas (Histórico / Cobrança / Pagamentos / Devolução) ── */
+    .stTabs [data-baseweb="tab-list"] { border-bottom: 1px solid rgba(0,184,132,0.20); gap: 6px; }
+    .stTabs [data-baseweb="tab"] {
+        color: #4A5752 !important;
+        font-weight: 600 !important;
+        font-size: 13.5px !important;
+        padding: 10px 16px !important;
+    }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] { color: #00805C !important; }
+    .stTabs [data-baseweb="tab-highlight"] { background: #00B884 !important; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ── Ordem das colunas na tabela ───────────────────────────────────────────────
+# ── Ordem das colunas na tabela (aba Histórico) ───────────────────────────────
 _ORDERED_COLS = [
     "COD_LANCAMENTO",
     "DATA_COBRANCA",
@@ -114,9 +156,26 @@ _ORDERED_COLS = [
     COLS["value_brl"],
 ]
 
+# ── Ordem das colunas na tabela (aba Pagamentos — sem "Status", sempre "Pago") ─
+_PAG_ORDERED_COLS = [
+    "COD_LANCAMENTO",
+    "DATA_COBRANCA",
+    "DATA_VENCIMENTO",
+    "DATA_PAGAMENTO",
+    COLS["supplier"],
+    "CNPJ_FORNECEDOR",
+    COLS["order"],
+    COLS["date"],
+    COLS["quantity"],
+    COLS["defect"],
+    COLS["real_cut"],
+    COLS["minutes"],
+    COLS["value_brl"],
+]
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Card KPI
+# Cards KPI
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _kpi_card(col, icon: str, label: str, value: str, accent: str) -> None:
@@ -148,7 +207,7 @@ def _kpi_card(col, icon: str, label: str, value: str, accent: str) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Tabela de extrato (resumo por lançamento) + popup de detalhes
+# Tabela de extrato (resumo por lançamento) + popup de detalhes — aba Histórico
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _render_simple_table(df: pd.DataFrame, left_cols: frozenset = frozenset(), height: int = 420) -> None:
@@ -201,6 +260,7 @@ def _render_simple_table(df: pd.DataFrame, left_cols: frozenset = frozenset(), h
       .status-pago {{ background: #00E5A0 !important; color: #FFFFFF !important; }}
       .status-pendente {{ background: #EF9F27 !important; color:#FFFFFF !important; }}
       .status-contestado {{ background: #D85A30 !important; color: #FFFFFF !important; }}
+      .status-devolucao {{ background: #0F86A3 !important; color: #FFFFFF !important; }}
     </style>
     <div class="nv-table-wrap" style="
         max-height:{height}px; overflow:auto; border-radius:12px;
@@ -410,41 +470,18 @@ def _show_extrato_dialog(cod_lancamento: str, df_source: pd.DataFrame) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Entry point
+# Aba: Histórico de Cobranças
 # ══════════════════════════════════════════════════════════════════════════════
 
-@page_guard
-def main() -> None:
-    require_login()
-    render_user_sidebar()
-
-    # ── Migra cobranças já pagas (lançadas antes da página Pagamentos
-    # Concluídos existir) para pagamentos_concluidos. Idempotente — não faz
-    # nada se já estiver tudo migrado. Fica dentro do main() (após o login e
-    # sob o page_guard) para que uma falha de banco vire mensagem amigável,
-    # em vez de quebrar a página ainda no import do módulo.
-    migrate_paid_to_payments()
-
+def _render_historico_tab() -> None:
     # ── Cabeçalho ─────────────────────────────────────────────────────────────
     st.markdown(
         f"""
-        <div style="padding:0.5rem 0 1.2rem;
-                    border-bottom:1px solid rgba(0,0,0,0.06);
-                    margin-bottom:1.4rem">
-            <div style="display:flex;align-items:baseline;gap:12px">
-                <span style="font-size:26px;font-weight:700;color:{COLORS['text_primary']}">
-                    🗃️ Histórico de Cobranças
-                </span>
-                <span style="font-size:12px;color:{COLORS['text_subtle']};
-                             background:rgba(0,229,160,0.18);
-                             padding:3px 10px;border-radius:20px;
-                             border:1px solid rgba(0,229,160,0.3)">
-                    bd_cobranca.xlsx
-                </span>
-            </div>
-            <p style="color:{COLORS['text_muted']};font-size:13px;margin:5px 0 0">
+        <div style="padding:0.5rem 0 1.2rem;margin-bottom:0.6rem">
+            <p style="color:{COLORS['text_muted']};font-size:13px;margin:0">
                 Registro acumulado de todas as cobranças confirmadas, exceto as já pagas
-                — essas ficam na aba <strong>Pagamentos Concluídos</strong>.
+                — essas ficam na aba <strong>Pagamentos Concluídos</strong> — e as
+                devolvidas para conserto, que ficam na aba <strong>Devolução</strong>.
                 Edite o status diretamente no painel abaixo.
             </p>
         </div>
@@ -468,7 +505,7 @@ def main() -> None:
                 <p style="font-size:13px;color:{COLORS['text_subtle']};
                           margin:0;max-width:400px;line-height:1.7">
                     O histórico será criado automaticamente ao confirmar
-                    a primeira cobrança na página
+                    a primeira cobrança na aba
                     <strong style="color:{COLORS['text_primary']}">
                         Cobrança de Fornecedores
                     </strong>.
@@ -504,63 +541,55 @@ def main() -> None:
         if col in df_view.columns:
             df_view[col] = pd.to_numeric(df_view[col], errors="coerce")
 
-    # ── Filtros (sidebar) ─────────────────────────────────────────────────────
-    st.sidebar.markdown(
-        '<p style="font-size:11px;text-transform:uppercase;letter-spacing:1px;'
-        'color:#4A5752;margin-bottom:12px">Filtros</p>',
-        unsafe_allow_html=True,
-    )
-
-    # Filtro de data
+    # ── Filtros ───────────────────────────────────────────────────────────────
     date_from = date_to = None
-    if dte_label in df_view.columns:
-        try:
-            dates_parsed = pd.to_datetime(df_view[dte_label], format="%d/%m/%Y", errors="coerce")
-            min_date = dates_parsed.dropna().min().date()
-            max_date = dates_parsed.dropna().max().date()
-        except Exception:
-            min_date = date.today() - timedelta(days=365)
-            max_date = date.today()
+    with st.expander("🔍 Filtros", expanded=False):
+        col_from, col_to, col_search = st.columns([1, 1, 2])
 
-        st.sidebar.markdown(
-            '<p style="font-size:11px;color:#4A5752;margin:0 0 4px">Período:</p>',
-            unsafe_allow_html=True,
-        )
-        date_from = st.sidebar.date_input(
-            "De", value=min_date, min_value=min_date, max_value=max_date,
-            key="hist_date_from", label_visibility="collapsed",
-        )
-        date_to = st.sidebar.date_input(
-            "Até", value=max_date, min_value=min_date, max_value=max_date,
-            key="hist_date_to", label_visibility="collapsed",
-        )
+        if dte_label in df_view.columns:
+            try:
+                dates_parsed = pd.to_datetime(df_view[dte_label], format="%d/%m/%Y", errors="coerce")
+                min_date = dates_parsed.dropna().min().date()
+                max_date = dates_parsed.dropna().max().date()
+            except Exception:
+                min_date = date.today() - timedelta(days=365)
+                max_date = date.today()
 
-    st.sidebar.markdown(
-        '<p style="font-size:11px;color:#4A5752;margin:12px 0 4px">Fornecedor, CNPJ ou Código:</p>',
-        unsafe_allow_html=True,
-    )
-    search_term = st.sidebar.text_input(
-        "Buscar", placeholder="Digite nome, CNPJ ou código…",
-        key="hist_search", label_visibility="collapsed",
-    )
+            with col_from:
+                date_from = st.date_input(
+                    "De", value=min_date, min_value=min_date, max_value=max_date,
+                    key="hist_date_from",format="DD/MM/YYYY"
+                )
+            with col_to:
+                date_to = st.date_input(
+                    "Até", value=max_date, min_value=min_date, max_value=max_date,
+                    key="hist_date_to",format="DD/MM/YYYY"
+                )
 
-    # ── Filtro por status ─────────────────────────────────────────────────────
-    st.sidebar.markdown(
-        '<p style="font-size:11px;color:#4A5752;margin:12px 0 4px">Status:</p>',
-        unsafe_allow_html=True,
-    )
-    status_filter = st.sidebar.multiselect(
-        "Status",
-        options=STATUS_OPTIONS,
-        default=STATUS_OPTIONS,
-        key="hist_status_filter",
-        label_visibility="collapsed",
-    )
+        with col_search:
+            search_term = st.text_input(
+                "Fornecedor, CNPJ ou Código",
+                placeholder="Digite nome, CNPJ ou código…",
+                key="hist_search",
+            )
 
-    if st.sidebar.button("↺ Limpar Filtros", key="hist_clear", use_container_width=True):
-        for k in ("hist_date_from", "hist_date_to", "hist_search", "hist_status_filter"):
-            st.session_state.pop(k, None)
-        st.rerun()
+        col_status, col_clear = st.columns([3, 1])
+        with col_status:
+            status_filter = st.multiselect(
+                "Status",
+                options=STATUS_OPTIONS,
+                default=STATUS_OPTIONS,
+                key="hist_status_filter",
+            )
+        with col_clear:
+            st.markdown("<div style='height:1.6rem'></div>", unsafe_allow_html=True)
+            if st.button("↺ Limpar Filtros", key="hist_clear", use_container_width=True):
+                for k in ("hist_date_from", "hist_date_to", "hist_search", "hist_status_filter"):
+                    st.session_state.pop(k, None)
+                st.rerun()
+
+    search_term = st.session_state.get("hist_search", "")
+    status_filter = st.session_state.get("hist_status_filter", STATUS_OPTIONS)
 
     # ── Aplicar filtros ───────────────────────────────────────────────────────
     df_filtered = df_view.copy()
@@ -647,30 +676,6 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Legenda de status ─────────────────────────────────────────────────────
-    st.markdown(
-        """
-        <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">
-            <span style="font-size:11px;padding:3px 10px;border-radius:10px;
-                         background:#00E5A0;color:#fff;font-weight:600">
-                ✅ Pago
-            </span>
-            <span style="font-size:11px;padding:3px 10px;border-radius:10px;
-                         background:#EF9F27;color:#0D1B17;font-weight:600">
-                ⏳ Pendente
-            </span>
-            <span style="font-size:11px;padding:3px 10px;border-radius:10px;
-                         background:#D85A30;color:#fff;font-weight:600">
-                ⚠️ Contestado
-            </span>
-            <span style="font-size:11px;color:#4A5752;align-self:center">
-                &nbsp;· Selecione o status na coluna e clique em Salvar alterações
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
     # ── Tabela de Extrato (resumo por lançamento) ─────────────────────────────
     # Uma linha por COD_LANCAMENTO, não por item — os detalhes completos ficam
     # disponíveis no popup "Ver Detalhes" (busca + seleção abaixo).
@@ -716,12 +721,17 @@ def main() -> None:
     # ── Painel de Controle de Status ──────────────────────────────────────────
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     with st.expander("📝 Atualizar Status de Lançamento", expanded=True):
+        _pode_editar_status = is_admin()
         st.caption(
             "Uma cobrança pode ter vários itens (um por defeito/OM) — todos compartilham "
             "o mesmo Código. A alteração abaixo sempre vale para o lançamento inteiro. "
             "Ao marcar como **Pago**, a cobrança sai deste histórico e passa para a aba "
-            "**Pagamentos Concluídos**."
+            "**Pagamentos Concluídos**. Ao marcar como **Devolução** — quando a oficina "
+            "fornecedora opta por consertar as peças em vez de pagar o desconto — a "
+            "cobrança sai deste histórico e passa para a aba **Devolução**."
         )
+        if not _pode_editar_status:
+            st.caption("🔒 Apenas administradores podem alterar o status de um lançamento.")
         col_rec, col_st, col_pag, col_act = st.columns([2, 1, 1, 1])
 
         if charge_opts:
@@ -731,18 +741,19 @@ def main() -> None:
                 format_func=lambda x: f"[{x[2]}] {x[0]}",
                 key="select_charge_to_update"
             )
-            
+
             curr_st = selected_opt[2]
             curr_pag = selected_opt[4]
             status_idx = STATUS_OPTIONS.index(curr_st) if curr_st in STATUS_OPTIONS else 0
-            
+
             new_st = col_st.selectbox(
                 "Alterar Status para",
                 options=STATUS_OPTIONS,
                 index=status_idx,
-                key="new_status_select"
+                key="new_status_select",
+                disabled=not _pode_editar_status,
             )
-            
+
             # ── Data do Pagamento: só faz sentido quando o status é "Pago".
             # É sempre informada manualmente pelo usuário (não é automática) ──
             data_pagamento_input = None
@@ -757,6 +768,7 @@ def main() -> None:
                         key="data_pagamento_input",
                         help="Data em que o pagamento foi efetivamente realizado. "
                              "Usada para indicar se foi pago no prazo ou com atraso.",
+                        disabled=not _pode_editar_status,
                     )
                 else:
                     st.markdown(
@@ -764,8 +776,14 @@ def main() -> None:
                         "Disponível ao marcar como Pago</div>",
                         unsafe_allow_html=True,
                     )
-            
-            if col_act.button("💾 Salvar Alteração", use_container_width=True, key="btn_update_status_db"):
+
+            if col_act.button(
+                "💾 Salvar Alteração",
+                use_container_width=True,
+                key="btn_update_status_db",
+                disabled=not _pode_editar_status,
+                help=None if _pode_editar_status else "Apenas administradores podem alterar o status.",
+            ):
                 cod_sel = selected_opt[1]
                 ok = update_lancamento_status(cod_sel, new_st, data_pagamento=data_pagamento_input)
                 if ok:
@@ -773,6 +791,11 @@ def main() -> None:
                         st.success(
                             f"✅ Cobrança paga com sucesso! Código **{cod_sel}** — "
                             "consulte os detalhes na aba **Pagamentos Concluídos**."
+                        )
+                    elif new_st == "Devolução":
+                        st.success(
+                            f"🔄 Cobrança movida para devolução! Código **{cod_sel}** — "
+                            "consulte os detalhes na aba **Devolução**."
                         )
                     else:
                         st.success(f"Status atualizado para {new_st} com sucesso!")
@@ -815,22 +838,568 @@ def main() -> None:
                 help="Nenhum registro para exportar.",
             )
 
-    # ── Status sidebar ────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Aba: Cobrança de Fornecedores
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _render_cobranca_tab() -> None:
+    if "df" not in st.session_state:
+        st.markdown(
+            f"""
+            <div style="
+                display:flex; flex-direction:column; align-items:center;
+                justify-content:center; min-height:50vh; text-align:center; gap:14px;
+            ">
+                <div style="font-size:48px; opacity:0.18">📂</div>
+                <p style="font-size:18px;font-weight:600;
+                          color:{COLORS['text_primary']};margin:0">
+                    Base principal não encontrada
+                </p>
+                <p style="font-size:13px;color:{COLORS['text_subtle']};
+                          margin:0;max-width:400px;line-height:1.7">
+                    Acesse a página
+                    <strong style="color:{COLORS['text_primary']}">
+                        Análise de Defeitos
+                    </strong>
+                    e faça a carga inicial da planilha histórica.<br>
+                    A base será salva automaticamente e carregada
+                    em todos os acessos futuros.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    render_cobranca_page(st.session_state["df"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Card KPI genérico (compartilhado pelas abas Pagamentos Concluídos e Devolução)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _metric_kpi_card(col, icon: str, label: str, value: str, accent: str) -> None:
+    with col:
+        st.markdown(
+            f"""
+            <div style="
+                background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%);
+                border: 1px solid {accent}40;
+                border-top: 2px solid {accent};
+                border-radius: 12px;
+                padding: 1rem 1.2rem 0.9rem;
+                box-shadow: 0 0 22px {accent}18, 0 2px 8px rgba(0,0,0,0.35);
+            ">
+                <div style="font-size:10px; color:#0D1B17;
+                            text-transform:uppercase; letter-spacing:0.9px;
+                            margin-bottom:6px; font-weight:600">
+                    <span style="color:{accent}; margin-right:5px">{icon}</span>{label}
+                </div>
+                <div style="font-size:22px; font-weight:700; color:#0D1B17;
+                            letter-spacing:-0.4px; white-space:nowrap;
+                            overflow:hidden; text-overflow:ellipsis">
+                    {value}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Aba: Pagamentos Concluídos
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _render_pagamentos_tab() -> None:
+    # ── Carregar pagamentos ───────────────────────────────────────────────────
+    df_pag = load_payments()
+
+    if df_pag is None or df_pag.empty:
+        st.markdown(
+            f"""
+            <div style="display:flex;flex-direction:column;align-items:center;
+                        justify-content:center;min-height:50vh;text-align:center;gap:14px">
+                <div style="font-size:52px;opacity:0.18">✅</div>
+                <p style="font-size:20px;font-weight:600;
+                          color:{COLORS['text_primary']};margin:0">
+                    Nenhum pagamento concluído ainda
+                </p>
+                <p style="font-size:13px;color:{COLORS['text_subtle']};
+                          margin:0;max-width:420px;line-height:1.7">
+                    Quando uma cobrança for marcada como
+                    <strong style="color:{COLORS['text_primary']}">Pago</strong> na aba
+                    <strong style="color:{COLORS['text_primary']}">Histórico de Cobranças</strong>,
+                    ela aparecerá automaticamente aqui.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    df_pag = df_pag.reset_index(drop=True)
+
+    # ── Preparar colunas visíveis ─────────────────────────────────────────────
+    cols_avail = [c for c in _PAG_ORDERED_COLS if c in df_pag.columns]
+    df_view = df_pag[cols_avail].copy()
+    df_view.rename(columns=HISTORY_LABELS, inplace=True)
+
+    cod_label  = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
+    venc_label = HISTORY_LABELS.get("DATA_VENCIMENTO", "Data Vencimento")
+    pag_label  = HISTORY_LABELS.get("DATA_PAGAMENTO",  "Data Pagamento")
+    sup_label  = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
+    cnpj_label = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
+    val_label  = HISTORY_LABELS.get(COLS["value_brl"], "Valor (R$)")
+    min_label  = HISTORY_LABELS.get(COLS["minutes"],   "Min. Gerados")
+    qty_label  = HISTORY_LABELS.get(COLS["quantity"],  "Qtd")
+    ord_label  = HISTORY_LABELS.get(COLS["order"],     "OM")
+
+    for col in (val_label, min_label, qty_label):
+        if col in df_view.columns:
+            df_view[col] = pd.to_numeric(df_view[col], errors="coerce")
+
+    # ── Situação do pagamento: fato permanente (não muda com o tempo), por
+    # isso é calculado aqui a partir das duas datas persistidas, e não
+    # precisa ser recalculado "ao vivo" como o Dias-para-Vencer do Histórico ─
+    situ_label = "Situação"
+    if venc_label in df_view.columns and pag_label in df_view.columns:
+        def _situacao(row):
+            dias, atrasado = payment_punctuality(row[pag_label], row[venc_label])
+            if atrasado is None:
+                return "—"
+            if atrasado:
+                return f"Atraso de {dias}d"
+            return "No prazo"
+        df_view[situ_label] = df_view.apply(_situacao, axis=1)
+
+    # ── Pesquisa por Fornecedor ou CNPJ ────────────────────────────────────────
+    opcoes_busca = ["Todos os Fornecedores"]
+    if sup_label in df_view.columns and cnpj_label in df_view.columns:
+        pares = (
+            df_view[[sup_label, cnpj_label]]
+            .drop_duplicates()
+            .sort_values(sup_label)
+        )
+        opcoes_busca += [f"{r[sup_label]} — {r[cnpj_label]}" for _, r in pares.iterrows()]
+
+    col_busca, col_clear = st.columns([3, 1])
+    with col_busca:
+        busca_sel = st.selectbox(
+            "Pesquisar por Fornecedor ou CNPJ",
+            options=opcoes_busca,
+            key="pag_busca_fornecedor",
+            help="Selecione um fornecedor (ou seu CNPJ) para filtrar os pagamentos.",
+        )
+    with col_clear:
+        st.markdown("<div style='height:1.6rem'></div>", unsafe_allow_html=True)
+        if st.button("↺ Limpar Pesquisa", key="pag_clear", use_container_width=True):
+            st.session_state.pop("pag_busca_fornecedor", None)
+            st.rerun()
+
+    df_filtered = df_view.copy()
+    if busca_sel != "Todos os Fornecedores":
+        fornecedor_sel = busca_sel.split(" — ")[0]
+        df_filtered = df_filtered[df_filtered[sup_label] == fornecedor_sel]
+
+    # ── KPIs (refletem a pesquisa aplicada) ──────────────────────────────────
+    total_value    = df_filtered[val_label].sum() if val_label in df_filtered.columns else 0.0
+    n_lancamentos  = df_filtered[cod_label].nunique() if cod_label in df_filtered.columns else 0
+    n_fornecedores = df_filtered[sup_label].nunique() if sup_label in df_filtered.columns else 0
+
+    n_no_prazo = n_atraso = 0
+    if situ_label in df_filtered.columns and cod_label in df_filtered.columns:
+        _unicos = df_filtered.drop_duplicates(subset=[cod_label])
+        n_no_prazo = int((_unicos[situ_label] == "No prazo").sum())
+        n_atraso   = int(_unicos[situ_label].astype(str).str.startswith("Atraso").sum())
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    _metric_kpi_card(c1, "💰", "VALOR TOTAL PAGO",   f"R$ {total_value:,.2f}", "#1D9E75")
+    _metric_kpi_card(c2, "🧾", "LANÇAMENTOS PAGOS",  str(n_lancamentos),       "#534AB7")
+    _metric_kpi_card(c3, "🏢", "FORNECEDORES",       str(n_fornecedores),      "#0F86A3")
+    _metric_kpi_card(c4, "✅", "PAGOS NO PRAZO",     str(n_no_prazo),          "#00B884")
+    _metric_kpi_card(c5, "⚠️", "PAGOS COM ATRASO",   str(n_atraso),            "#D85A30")
+
+    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+
+    # Badge de pesquisa ativa
+    st.markdown(
+        f"""
+        <div style="
+            font-size:11px; color:{COLORS['text_subtle']};
+            background:rgba(0,229,160,0.08);
+            border:1px solid rgba(0,229,160,0.18);
+            border-radius:6px; padding:6px 14px; margin-bottom:12px;
+            display:inline-block;
+        ">
+            🔎 {busca_sel} &nbsp;·&nbsp; {len(df_filtered)} item(ns)
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Tabela customizada HTML/CSS ───────────────────────────────────────────
+    display_df = df_filtered.copy()
+
+    if val_label in display_df.columns:
+        display_df[val_label] = display_df[val_label].apply(lambda v: f"R$ {float(v):,.2f}" if pd.notna(v) else "")
+    if min_label in display_df.columns:
+        display_df[min_label] = display_df[min_label].apply(lambda v: f"{float(v):,.2f}" if pd.notna(v) else "")
+    if qty_label in display_df.columns:
+        display_df[qty_label] = display_df[qty_label].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
+    if ord_label in display_df.columns:
+        display_df[ord_label] = display_df[ord_label].apply(lambda v: f"{int(float(v))}" if pd.notna(v) else "")
+    if "Real Cortado" in display_df.columns:
+        display_df["Real Cortado"] = display_df["Real Cortado"].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
+
+    if situ_label in display_df.columns:
+        def _situ_badge(s):
+            if s == "No prazo":
+                return '<span class="badge-status status-pago">✅ No prazo</span>'
+            if isinstance(s, str) and s.startswith("Atraso"):
+                return f'<span class="badge-status status-contestado">⚠️ {s}</span>'
+            return '<span style="color:#9A6B1E">—</span>'
+        display_df[situ_label] = display_df[situ_label].apply(_situ_badge)
+
+    headers = list(display_df.columns)
+
+    TH = (
+        "padding:11px 14px;text-align:center;color:#FFFFFF;font-weight:600;"
+        "font-size:10px;text-transform:uppercase;letter-spacing:0.9px;"
+        "background:#00805C;border-bottom:2px solid #00B884;"
+        "white-space:nowrap;position:sticky;top:0;z-index:1;"
+    )
+    TH_L = TH + "text-align:left;"
+
+    head_html = "".join(
+        f'<th style="{TH_L if h in ("Fornecedor", "Remonte") else TH}">✦ {h}</th>'
+        for h in headers
+    )
+
+    def _make_cell(h, val, row_bg):
+        is_left = h in ("Fornecedor", "Remonte")
+        align = "text-align:left;" if is_left else "text-align:center;"
+        base_td = (
+            f"padding:9px 14px;font-size:12.5px;color:#0D1B17;"
+            f"border-bottom:1px solid rgba(0,229,160,0.12);"
+            f"{align}{row_bg}"
+        )
+        return f'<td style="{base_td}">{val}</td>'
+
+    rows_html = "".join(
+        f"<tr>" + "".join(
+            _make_cell(h, row[h], "background:#FFFFFF;" if i % 2 == 1 else "background:#F2F7F5;")
+            for h in headers
+        ) + "</tr>"
+        for i, (_, row) in enumerate(display_df.iterrows())
+    )
+
+    table_html = f"""
+    <style>
+      .nv-pag-table-wrap {{ scrollbar-width: thin; }}
+      .nv-pag-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
+      .nv-pag-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
+      .nv-pag-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
+      .nv-pag-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
+      .nv-pag-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
+      .badge-status {{
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        display: inline-block;
+      }}
+      .status-pago {{ background: #00E5A0 !important; color: #FFFFFF !important; }}
+      .status-contestado {{ background: #D85A30 !important; color: #FFFFFF !important; }}
+    </style>
+    <div class="nv-pag-table-wrap" style="
+        max-height:480px; overflow:auto; border-radius:12px;
+        border:1px solid rgba(0,229,160,0.32);
+        border-top:2px solid #00B884;
+        background:#F2F7F5;
+        box-shadow:0 0 22px rgba(0,229,160,0.10);
+    ">
+      <table style="width:100%;border-collapse:collapse;min-width:1100px;">
+        <thead><tr>{head_html}</tr></thead>
+        <tbody>{rows_html}</tbody>
+      </table>
+    </div>
+    """
+    st.markdown(table_html, unsafe_allow_html=True)
+
+    # ── Botão de exportar Excel executivo ─────────────────────────────────────
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    btn_dl, _sp = st.columns([1, 3])
+    with btn_dl:
+        _xlsx_bytes = generate_payments_xlsx_bytes() if df_pag is not None and not df_pag.empty else None
+        if _xlsx_bytes:
+            st.download_button(
+                label="📊  Baixar Excel Executivo",
+                data=_xlsx_bytes,
+                file_name=f"pagamentos_concluidos_{date.today().isoformat()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_pagamentos_excel",
+                use_container_width=True,
+                help="Baixa o relatório executivo completo (todos os pagamentos, "
+                     "independente da pesquisa acima).",
+            )
+        else:
+            st.button("📊  Baixar Excel Executivo", disabled=True, use_container_width=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Aba: Devolução
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Mesma estrutura de colunas da aba Pagamentos (sem "Status" — aqui o status é
+# sempre "Devolução", implícito pela aba).
+_DEV_ORDERED_COLS = _PAG_ORDERED_COLS
+
+
+def _render_devolucao_tab() -> None:
+    # ── Carregar devoluções ───────────────────────────────────────────────────
+    df_dev = load_devolucoes()
+
+    if df_dev is None or df_dev.empty:
+        st.markdown(
+            f"""
+            <div style="display:flex;flex-direction:column;align-items:center;
+                        justify-content:center;min-height:50vh;text-align:center;gap:14px">
+                <div style="font-size:52px;opacity:0.18">🔄</div>
+                <p style="font-size:20px;font-weight:600;
+                          color:{COLORS['text_primary']};margin:0">
+                    Nenhuma devolução registrada ainda
+                </p>
+                <p style="font-size:13px;color:{COLORS['text_subtle']};
+                          margin:0;max-width:420px;line-height:1.7">
+                    Quando uma cobrança for marcada como
+                    <strong style="color:{COLORS['text_primary']}">Devolução</strong> na aba
+                    <strong style="color:{COLORS['text_primary']}">Histórico de Cobranças</strong>
+                    — ou seja, quando a oficina fornecedora optar por consertar as peças
+                    com defeito em vez de pagar o desconto — ela aparecerá aqui.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    df_dev = df_dev.reset_index(drop=True)
+
+    # ── Preparar colunas visíveis ─────────────────────────────────────────────
+    cols_avail = [c for c in _DEV_ORDERED_COLS if c in df_dev.columns]
+    df_view = df_dev[cols_avail].copy()
+    df_view.rename(columns=HISTORY_LABELS, inplace=True)
+
+    cod_label  = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
+    sup_label  = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
+    cnpj_label = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
+    val_label  = HISTORY_LABELS.get(COLS["value_brl"], "Valor (R$)")
+    min_label  = HISTORY_LABELS.get(COLS["minutes"],   "Min. Gerados")
+    qty_label  = HISTORY_LABELS.get(COLS["quantity"],  "Qtd")
+    ord_label  = HISTORY_LABELS.get(COLS["order"],     "OM")
+
+    for col in (val_label, min_label, qty_label):
+        if col in df_view.columns:
+            df_view[col] = pd.to_numeric(df_view[col], errors="coerce")
+
+    # ── Pesquisa por Fornecedor ou CNPJ ────────────────────────────────────────
+    opcoes_busca = ["Todos os Fornecedores"]
+    if sup_label in df_view.columns and cnpj_label in df_view.columns:
+        pares = (
+            df_view[[sup_label, cnpj_label]]
+            .drop_duplicates()
+            .sort_values(sup_label)
+        )
+        opcoes_busca += [f"{r[sup_label]} — {r[cnpj_label]}" for _, r in pares.iterrows()]
+
+    col_busca, col_clear = st.columns([3, 1])
+    with col_busca:
+        busca_sel = st.selectbox(
+            "Pesquisar por Fornecedor ou CNPJ",
+            options=opcoes_busca,
+            key="dev_busca_fornecedor",
+            help="Selecione um fornecedor (ou seu CNPJ) para filtrar as devoluções.",
+        )
+    with col_clear:
+        st.markdown("<div style='height:1.6rem'></div>", unsafe_allow_html=True)
+        if st.button("↺ Limpar Pesquisa", key="dev_clear", use_container_width=True):
+            st.session_state.pop("dev_busca_fornecedor", None)
+            st.rerun()
+
+    df_filtered = df_view.copy()
+    if busca_sel != "Todos os Fornecedores":
+        fornecedor_sel = busca_sel.split(" — ")[0]
+        df_filtered = df_filtered[df_filtered[sup_label] == fornecedor_sel]
+
+    # ── KPIs (refletem a pesquisa aplicada) ──────────────────────────────────
+    total_value    = df_filtered[val_label].sum() if val_label in df_filtered.columns else 0.0
+    total_minutes  = df_filtered[min_label].sum() if min_label in df_filtered.columns else 0.0
+    total_pieces   = int(df_filtered[qty_label].sum()) if qty_label in df_filtered.columns else 0
+    n_lancamentos  = df_filtered[cod_label].nunique() if cod_label in df_filtered.columns else 0
+    n_fornecedores = df_filtered[sup_label].nunique() if sup_label in df_filtered.columns else 0
+    n_orders       = df_filtered[ord_label].nunique() if ord_label in df_filtered.columns else 0
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    _metric_kpi_card(c1, "💰", "VALOR TOTAL DEVOLVIDO",  f"R$ {total_value:,.2f}", "#0F86A3")
+    _metric_kpi_card(c2, "🧾", "LANÇAMENTOS DEVOLVIDOS",  str(n_lancamentos),       "#534AB7")
+    _metric_kpi_card(c3, "🏢", "FORNECEDORES",            str(n_fornecedores),      "#00B884")
+    _metric_kpi_card(c4, "🧵", "PEÇAS DEVOLVIDAS",        f"{total_pieces:,}",      "#D85A30")
+    _metric_kpi_card(c5, "📦", "ORDENS ÚNICAS (OM)",      str(n_orders),            "#EF9F27")
+
+    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+
+    # Badge de pesquisa ativa
+    st.markdown(
+        f"""
+        <div style="
+            font-size:11px; color:{COLORS['text_subtle']};
+            background:rgba(0,229,160,0.08);
+            border:1px solid rgba(0,229,160,0.18);
+            border-radius:6px; padding:6px 14px; margin-bottom:12px;
+            display:inline-block;
+        ">
+            🔎 {busca_sel} &nbsp;·&nbsp; {len(df_filtered)} item(ns)
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Tabela (reaproveita o mesmo componente HTML/CSS da aba Histórico) ────
+    display_df = df_filtered.copy()
+
+    if val_label in display_df.columns:
+        display_df[val_label] = display_df[val_label].apply(lambda v: f"R$ {float(v):,.2f}" if pd.notna(v) else "")
+    if min_label in display_df.columns:
+        display_df[min_label] = display_df[min_label].apply(lambda v: f"{float(v):,.2f}" if pd.notna(v) else "")
+    if qty_label in display_df.columns:
+        display_df[qty_label] = display_df[qty_label].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
+    if ord_label in display_df.columns:
+        display_df[ord_label] = display_df[ord_label].apply(lambda v: f"{int(float(v))}" if pd.notna(v) else "")
+    if "Real Cortado" in display_df.columns:
+        display_df["Real Cortado"] = display_df["Real Cortado"].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
+
+    if display_df.empty:
+        st.info("Nenhuma devolução encontrada para a pesquisa atual.")
+    else:
+        _render_simple_table(display_df, left_cols=frozenset({sup_label, "Remonte"}), height=440)
+
+    # ── Botões de exportação (Excel + Prévia/Imprimir PDF) ────────────────────
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    btn_dl, btn_pdf, _sp = st.columns([1, 1, 2])
+
+    with btn_dl:
+        _xlsx_bytes = generate_devolucoes_xlsx_bytes() if df_dev is not None and not df_dev.empty else None
+        if _xlsx_bytes:
+            st.download_button(
+                label="📊  Baixar Excel Executivo",
+                data=_xlsx_bytes,
+                file_name=f"devolucoes_{date.today().isoformat()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_devolucoes_excel",
+                use_container_width=True,
+                help="Baixa o relatório executivo completo (todas as devoluções, "
+                     "independente da pesquisa acima).",
+            )
+        else:
+            st.button("📊  Baixar Excel Executivo", disabled=True, use_container_width=True)
+
+    with btn_pdf:
+        if len(df_filtered) > 0:
+            totals_dev = dict(
+                n_records=len(df_filtered),
+                total_minutes=total_minutes,
+                total_value=total_value,
+                total_pieces=total_pieces,
+                n_orders=n_orders,
+                n_cobrancas=n_lancamentos,
+            )
+            html_dev = _generate_historico_html(
+                df_filtered, totals_dev, f"Pesquisa: {busca_sel}",
+                titulo="🔄 Devolução de Peças", badge="devolucoes",
+            )
+            _render_print_button(html_dev)
+        else:
+            st.button(
+                "🖨️  Prévia / Imprimir PDF", disabled=True,
+                use_container_width=True,
+                help="Nenhum registro para exportar.",
+            )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Entry point
+# ══════════════════════════════════════════════════════════════════════════════
+
+@page_guard
+def main() -> None:
+    require_login()
+    render_user_sidebar()
+
+    # ── Migra cobranças já pagas (lançadas antes da página Pagamentos
+    # Concluídos existir) para pagamentos_concluidos. Idempotente — não faz
+    # nada se já estiver tudo migrado. Fica dentro do main() (após o login e
+    # sob o page_guard) para que uma falha de banco vire mensagem amigável,
+    # em vez de quebrar a página ainda no import do módulo.
+    migrate_paid_to_payments()
+    # ── Compatibilidade: converte lançamentos com o status legado "Contestado"
+    # (opção removida em favor de "Devolução") para devolucoes. Idempotente.
+    migrate_contestado_to_devolucao()
+
+    # ── Cabeçalho ─────────────────────────────────────────────────────────────
+    st.markdown(
+        f"""
+        <div style="padding:0.5rem 0 1.2rem;
+                    border-bottom:1px solid rgba(0,0,0,0.06);
+                    margin-bottom:1.4rem">
+            <div style="display:flex;align-items:baseline;gap:12px">
+                <span style="font-size:26px;font-weight:700;color:{COLORS['text_primary']}">
+                    🗃️ Gestão de Cobranças
+                </span>
+                <span style="font-size:12px;color:{COLORS['text_subtle']};
+                             background:rgba(0,229,160,0.18);
+                             padding:3px 10px;border-radius:20px;
+                             border:1px solid rgba(0,229,160,0.3)">
+                    Postgres (Supabase)
+                </span>
+            </div>
+            <p style="color:{COLORS['text_muted']};font-size:13px;margin:5px 0 0">
+                Navegue entre Histórico, Cobrança de Fornecedores, Pagamentos Concluídos
+                e Devolução pelas abas abaixo — cada uma calcula seus próprios totais e cards.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    tab_hist, tab_cobranca, tab_pag, tab_dev = st.tabs([
+        "🗃️ Histórico de Cobranças",
+        "💰 Cobrança de Fornecedores",
+        "✅ Pagamentos Concluídos",
+        "🔄 Devolução",
+    ])
+
+    with tab_hist:
+        _render_historico_tab()
+
+    with tab_cobranca:
+        _render_cobranca_tab()
+
+    with tab_pag:
+        _render_pagamentos_tab()
+
+    with tab_dev:
+        _render_devolucao_tab()
+
+    # ── Status sidebar (comum às 4 abas) ──────────────────────────────────────
     st.sidebar.markdown(
         '<hr style="border-color:rgba(0,0,0,0.06);margin:16px 0">',
         unsafe_allow_html=True,
     )
-    ok_color = "#00E5A0"
-    ok_txt   = "Banco Postgres (Supabase) conectado"
     st.sidebar.markdown(
-        f'<div style="font-size:10.5px;color:{ok_color};padding:6px 8px;'
-        f'border-radius:6px;background:rgba(0,229,160,0.06);'
-        f'border:1px solid {ok_color}33;">✓ {ok_txt}</div>',
-        unsafe_allow_html=True,
-    )
-    st.sidebar.markdown(
-        f'<div style="font-size:10px;color:#00805C;margin-top:8px;padding:4px 8px">'
-        f'{len(df_hist) - 1} registro(s) no total</div>',
+        '<div style="font-size:10.5px;color:#00E5A0;padding:6px 8px;'
+        'border-radius:6px;background:rgba(0,229,160,0.06);'
+        'border:1px solid #00E5A033;">✓ Banco Postgres (Supabase) conectado</div>',
         unsafe_allow_html=True,
     )
 

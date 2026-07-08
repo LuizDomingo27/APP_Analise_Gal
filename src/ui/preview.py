@@ -501,7 +501,13 @@ def _generate_cobranca_html(
 
 # ── HTML generator for Billing History Report ─────────────────────────────────
 
-def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_desc: str) -> str:
+def _generate_historico_html(
+    df_filtered: pd.DataFrame,
+    totals: dict,
+    filters_desc: str,
+    titulo: str = "🗃️ Histórico de Cobranças",
+    badge: str = "bd_cobranca.xlsx",
+) -> str:
     ts = datetime.now(_TZ_BR).strftime("%d/%m/%Y %H:%M")
     n = len(df_filtered)
     
@@ -551,7 +557,7 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Histórico de Cobranças · Qualidade</title>
+<title>{titulo} · Qualidade</title>
 <style>
 {_SHARED_CSS}
 </style>
@@ -561,11 +567,11 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
 <!-- Header -->
 <div class="header">
   <div>
-    <div class="htitle">🗃️ Histórico de Cobranças · <span>Controle de Qualidade</span></div>
+    <div class="htitle">{titulo} · <span>Controle de Qualidade</span></div>
     <div class="hsub">{filters_desc} &nbsp;·&nbsp; Gerado em {ts}</div>
   </div>
   <div class="hright">
-    <span class="hbadge">bd_cobranca.xlsx</span>
+    <span class="hbadge">{badge}</span>
     <button class="pdf-btn" onclick="window.print()">🖨️ Baixar PDF</button>
   </div>
 </div>
@@ -632,7 +638,7 @@ def _generate_historico_html(df_filtered: pd.DataFrame, totals: dict, filters_de
 
 <!-- Footer -->
 <div class="footer">
-  <span>Histórico de Cobranças · Controle de Qualidade</span>
+  <span>{titulo} · Controle de Qualidade</span>
   <span>{n:,} registros &nbsp;·&nbsp; {ts}</span>
 </div>
 
