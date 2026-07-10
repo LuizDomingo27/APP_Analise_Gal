@@ -113,9 +113,6 @@ st.markdown(
     [data-testid="stExpander"] summary { font-size: 13px !important; color: #0D1B17 !important; }
     [data-testid="stExpander"] summary:hover { color: #00805C !important; }
 
-    /* ── Plotly chart bg ── */
-    .js-plotly-plot .plotly .main-svg { background: transparent !important; }
-
     /* ── Buttons ── */
     .stButton > button, .stDownloadButton > button {
         background: #FFFFFF !important;

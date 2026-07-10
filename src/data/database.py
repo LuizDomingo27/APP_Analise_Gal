@@ -162,6 +162,32 @@ def get_connection():
 #     records_editor.py para localizar linhas na edição individual.
 #   - Tipos: TEXT→text, INTEGER→integer, REAL→double precision.
 
+# DDL da tabela de histórico permanente de defeitos. Exposta como constante
+# pública para que a camada src/data/historico_defeitos.py possa garantir a
+# existência da tabela de forma idempotente, sem depender do cache de
+# create_tables() (que, após um hot-reload do Streamlit sem reinício do
+# processo, pode ficar preso a um schema antigo — sem esta tabela).
+HISTORICO_DEFEITOS_DDL = """
+    CREATE TABLE IF NOT EXISTS historico_defeitos (
+        id                              bigserial PRIMARY KEY,
+        "DATA DE PRODUÇÃO ACABAMENTO"   text,
+        "ORDEM MESTRE"                  text,
+        "MATERIAL"                      text,
+        "FORNECEDOR"                    text,
+        "QUANTIDADE"                    integer,
+        "LOCAL"                         text,
+        "REMONTE"                       text,
+        "REAL CORTADO"                  text,
+        "PERCENTUAL DE REMONTE"         double precision,
+        "CHAVE"                         text,
+        "TEMPO DE PROCESSO"             text,
+        "MINUTOS GERADOS"               double precision,
+        "VALOR DO PROCESSO BRL"         double precision,
+        "STATUS_COBRANCA"               text
+    )
+"""
+
+
 _DDL_STATEMENTS = [
     """
     CREATE TABLE IF NOT EXISTS registros_defeitos (
@@ -182,6 +208,7 @@ _DDL_STATEMENTS = [
         "STATUS_COBRANCA"               text
     )
     """,
+    HISTORICO_DEFEITOS_DDL,
     """
     CREATE TABLE IF NOT EXISTS historico_cobrancas (
         id                              bigserial PRIMARY KEY,

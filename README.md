@@ -21,7 +21,8 @@ APP_Defeito_Gal/
 │   └── 3_Historico_Cobranca.py # Visualização e edição do Histórico de Cobranças
 └── src/                       # Código-fonte modularizado
     ├── charts/
-    │   └── builder.py         # Criação de gráficos em Plotly (design premium)
+    │   ├── builder.py         # Specs de gráficos em ECharts (funções puras)
+    │   └── render.py          # Renderização dos specs via streamlit-echarts
     ├── config/
     │   └── settings.py        # Configurações do sistema (paleta de cores, colunas)
     ├── data/

@@ -475,19 +475,19 @@ def _show_extrato_dialog(cod_lancamento: str, df_source: pd.DataFrame) -> None:
 
 def _render_historico_tab() -> None:
     # ── Cabeçalho ─────────────────────────────────────────────────────────────
-    st.markdown(
-        f"""
-        <div style="padding:0.5rem 0 1.2rem;margin-bottom:0.6rem">
-            <p style="color:{COLORS['text_muted']};font-size:13px;margin:0">
-                Registro acumulado de todas as cobranças confirmadas, exceto as já pagas
-                — essas ficam na aba <strong>Pagamentos Concluídos</strong> — e as
-                devolvidas para conserto, que ficam na aba <strong>Devolução</strong>.
-                Edite o status diretamente no painel abaixo.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+   # st.markdown(
+   #     f"""
+   #     <div style="padding:0.5rem 0 1.2rem;margin-bottom:0.6rem">
+   #         <p style="color:{COLORS['text_muted']};font-size:13px;margin:0">
+   #             Registro acumulado de todas as cobranças confirmadas, exceto as já pagas
+   #             — essas ficam na aba <strong>Pagamentos Concluídos</strong> — e as
+   #             devolvidas para conserto, que ficam na aba <strong>Devolução</strong>.
+   #             Edite o status diretamente no painel abaixo.
+   #         </p>
+   #     </div>
+   #     """,
+   #     unsafe_allow_html=True,
+   # )
 
     # ── Carregar histórico ────────────────────────────────────────────────────
     df_hist = load_history()
@@ -1356,17 +1356,7 @@ def main() -> None:
                 <span style="font-size:26px;font-weight:700;color:{COLORS['text_primary']}">
                     🗃️ Gestão de Cobranças
                 </span>
-                <span style="font-size:12px;color:{COLORS['text_subtle']};
-                             background:rgba(0,229,160,0.18);
-                             padding:3px 10px;border-radius:20px;
-                             border:1px solid rgba(0,229,160,0.3)">
-                    Postgres (Supabase)
-                </span>
             </div>
-            <p style="color:{COLORS['text_muted']};font-size:13px;margin:5px 0 0">
-                Navegue entre Histórico, Cobrança de Fornecedores, Pagamentos Concluídos
-                e Devolução pelas abas abaixo — cada uma calcula seus próprios totais e cards.
-            </p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1396,12 +1386,13 @@ def main() -> None:
         '<hr style="border-color:rgba(0,0,0,0.06);margin:16px 0">',
         unsafe_allow_html=True,
     )
-    st.sidebar.markdown(
-        '<div style="font-size:10.5px;color:#00E5A0;padding:6px 8px;'
-        'border-radius:6px;background:rgba(0,229,160,0.06);'
-        'border:1px solid #00E5A033;">✓ Banco Postgres (Supabase) conectado</div>',
-        unsafe_allow_html=True,
-    )
+   
+   # st.sidebar.markdown(
+   #     '<div style="font-size:10.5px;color:#00E5A0;padding:6px 8px;'
+   #     'border-radius:6px;background:rgba(0,229,160,0.06);'
+   #     'border:1px solid #00E5A033;">✓ Banco Postgres (Supabase) conectado</div>',
+   #     unsafe_allow_html=True,
+   # )
 
 
 main()

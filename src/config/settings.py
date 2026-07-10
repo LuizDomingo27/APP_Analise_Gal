@@ -71,20 +71,7 @@ COLS = {
     "status":       "STATUS_COBRANCA",
 }
 
-# ── Altair/Vega-Lite theme config ─────────────────────────────────────────────
-ALTAIR_AXIS = {
-    "labelColor": "#4A5752",
-    "labelFontSize": 11,
-    "labelFont": "Inter, sans-serif",
-    "grid": False,
-    "domainColor": "rgba(0,0,0,0.10)",
-    "tickColor": "rgba(0,0,0,0)",
-    "titleColor": "#4A5752",
-}
-
-ALTAIR_CONFIG = {
-    "background": "transparent",
-    "font": "Inter, sans-serif",
-    "axis": ALTAIR_AXIS,
-    "view": {"strokeOpacity": 0},
-}
+# ── ECharts theme tokens ──────────────────────────────────────────────────────
+ECHARTS_FONT = "Inter, sans-serif"
+TEXT_PRIMARY = COLORS["text_primary"]
+TEXT_MUTED = COLORS["text_muted"]

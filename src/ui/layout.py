@@ -11,6 +11,7 @@ import streamlit.components.v1 as components
 import pandas as pd
 from src.data.processor import DataProcessor
 from src.charts import builder
+from src.charts.render import echart
 from src.ui.preview import _generate_html
 from src.services.exporter import get_xlsx_bytes
 from src.config.settings import COLS, COLORS, DEFECT_COLORS
@@ -248,16 +249,15 @@ def render_charts(processor: DataProcessor, full_df: pd.DataFrame) -> None:
 
 def _render_distribution(processor: DataProcessor) -> None:
     _section("Distribuição de Defeitos", "🔍")
-    c1, c2 = st.columns(2)
 
+    c1, c2 = st.columns(2)
     with c1:
+        _chart_label("Top 10 — local do defeito")
+        echart(builder.bar_location(processor.by_location(), 10), key="lay_bar_location")
+    with c2:
         _chart_label("Tipo de defeito")
         _defect_legend()
-        st.altair_chart(builder.donut_defect_type(processor.by_defect_type()), use_container_width=True)
-
-    with c2:
-        _chart_label("Local do defeito")
-        st.altair_chart(builder.bar_location(processor.by_location()), use_container_width=True)
+        echart(builder.donut_defect_type(processor.by_defect_type()), key="lay_donut_defect")
 
 
 # ── Section 2: Evolução Temporal ──────────────────────────────────────────────
@@ -266,10 +266,10 @@ def _render_temporal(processor: DataProcessor) -> None:
     _section("Evolução Temporal", "📅")
 
     _chart_label("Defeitos por dia")
-    st.altair_chart(builder.area_defects_by_date(processor.by_date()), use_container_width=True)
+    echart(builder.area_defects_by_date(processor.by_date()), key="lay_area_defects")
 
     _chart_label("Custo de remonte por dia (R$)")
-    st.altair_chart(builder.area_cost_by_date(processor.by_date_cost()), use_container_width=True)
+    echart(builder.area_cost_by_date(processor.by_date_cost()), key="lay_area_cost")
 
 
 # ── Section 3: Análise por Fornecedor (2 linhas × 2 colunas) ─────────────────
@@ -281,10 +281,10 @@ def _render_suppliers(processor: DataProcessor) -> None:
     c1, c2 = st.columns(2)
     with c1:
         _chart_label("Top 10 — quantidade de defeitos")
-        st.altair_chart(builder.bar_supplier_quantity(processor.by_supplier_quantity(10)), use_container_width=True)
+        echart(builder.bar_supplier_quantity(processor.by_supplier_quantity(10)), key="lay_sup_qty")
     with c2:
         _chart_label("Top 10 — custo de remonte (R$)")
-        st.altair_chart(builder.bar_supplier_cost(processor.by_supplier_cost(10)), use_container_width=True)
+        echart(builder.bar_supplier_cost(processor.by_supplier_cost(10)), key="lay_sup_cost")
 
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -294,7 +294,7 @@ def _render_suppliers(processor: DataProcessor) -> None:
     with c3:
         _chart_label("Top 12 — combinações Local × Defeito")
         _defect_legend()
-        st.altair_chart(builder.bar_key_combinations(processor.by_key(12)), use_container_width=True)
+        echart(builder.bar_key_combinations(processor.by_key(12)), key="lay_key_combos")
     with c4:
         _chart_label("Variação Semanal por Fornecedores")
         _render_variation_table_supplier(processor.weekly_remonte_by_supplier(10))
