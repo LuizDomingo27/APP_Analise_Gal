@@ -9,6 +9,7 @@ CHANGELOG v13:
 - Histórico movido para src/data/cobranca_history.py.
 """
 
+import math
 from datetime import date, timedelta
 
 import pandas as pd
@@ -28,6 +29,40 @@ from src.ui.preview import _generate_cobranca_html
 
 # ── Constante de limite ───────────────────────────────────────────────────────
 CHARGE_THRESHOLD = 400.0
+
+
+# ── Formatação segura de células numéricas ────────────────────────────────────
+# As colunas de origem (ex.: "REAL CORTADO") têm dtype object e podem conter
+# strings não convertíveis diretamente (separador decimal/milhar, "nan", texto).
+# Estas funções nunca lançam: valores ausentes viram "" e valores não numéricos
+# são exibidos como estão, evitando derrubar a página inteira.
+def _coerce_number(v):
+    """Converte v para float finito ou retorna None se não for possível.
+
+    Cobre NaN/None, strings vazias, strings numéricas ("1240") e valores
+    não numéricos ou não finitos ("nan", "abc", inf) — nestes casos, None.
+    """
+    if pd.isna(v) or v == "":
+        return None
+    try:
+        n = float(v)
+    except (ValueError, TypeError):
+        return None
+    return n if math.isfinite(n) else None
+
+
+def _fmt_int_cell(v):
+    n = _coerce_number(v)
+    if n is None:
+        return "" if (pd.isna(v) or v == "") else str(v)
+    return f"{int(n):,}"
+
+
+def _fmt_float_cell(v):
+    n = _coerce_number(v)
+    if n is None:
+        return "" if (pd.isna(v) or v == "") else str(v)
+    return f"{n:,.2f}"
 
 # ── Colunas a exibir ─────────────────────────────────────────────────────────
 _DISPLAY_COLS = [
@@ -512,12 +547,12 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
 
     val_label = _COL_LABELS[COLS["value_brl"]]
     df_display[val_label] = df_display[val_label].apply(
-        lambda v: f"R$ {float(v):,.2f}" if v != "" else ""
+        lambda v: f"R$ {_coerce_number(v):,.2f}" if _coerce_number(v) is not None else ""
     )
 
-    df_display["Qtd"] = df_display["Qtd"].apply(lambda v: f"{int(v):,}" if pd.notna(v) and v != "" else "")
-    df_display["Rel. Cortado"] = df_display["Rel. Cortado"].apply(lambda v: f"{int(v):,}" if pd.notna(v) and v != "" else "")
-    df_display["Min. Gerados"] = df_display["Min. Gerados"].apply(lambda v: f"{float(v):,.2f}" if pd.notna(v) and v != "" else "")
+    df_display["Qtd"] = df_display["Qtd"].apply(_fmt_int_cell)
+    df_display["Rel. Cortado"] = df_display["Rel. Cortado"].apply(_fmt_int_cell)
+    df_display["Min. Gerados"] = df_display["Min. Gerados"].apply(_fmt_float_cell)
 
     _render_html_table(df_display, height=min(460, max(160, (len(df_display) + 1) * 38)))
 
