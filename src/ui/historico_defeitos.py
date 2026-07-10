@@ -7,7 +7,8 @@ Estrutura da página (de cima para baixo):
   2. Upload dos dados do dia (somente administradores) — na própria página,
      não na sidebar (a sidebar já é usada pela cobrança na página principal).
   3. Cards de KPIs + faixa de insights (mesmos da página principal).
-  4. Filtros (selectbox de oficina/fornecedor + período) logo abaixo dos cards.
+  4. Filtros (selectbox de oficina/fornecedor + período) logo abaixo dos cards,
+     com a barra de exportação (Excel / PDF) na mesma linha.
   5. Apenas gráficos (sem tabelas de dados).
   6. Formulário de correção de nome de fornecedor (somente administradores):
      pesquisa o nome atual e grava a grafia corrigida em todo o histórico.
@@ -16,8 +17,12 @@ Toda a página é defensiva: dados ausentes ou falhas de banco resultam em
 mensagens amigáveis, nunca em traceback na tela.
 """
 
+import base64
+import logging
+
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from src.auth.session import is_admin
 from src.charts import builder
@@ -30,7 +35,11 @@ from src.data.historico_defeitos import (
     rename_supplier,
 )
 from src.data.processor import DataProcessor
+from src.services.exporter import get_xlsx_bytes
 from src.ui.metrics import render_insights, render_metrics
+from src.ui.preview import _generate_defeitos_tabela_html
+
+logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -173,7 +182,7 @@ def _render_filters(df: pd.DataFrame) -> pd.DataFrame:
     min_date = df[COLS["date"]].min().date()
     max_date = df[COLS["date"]].max().date()
 
-    col_of, col_dt = st.columns([1, 1])
+    col_of, col_dt, col_exp = st.columns([1, 1, 1])
     with col_of:
         oficina = st.selectbox(
             "🏭 Oficina (Fornecedor)",
@@ -201,7 +210,182 @@ def _render_filters(df: pd.DataFrame) -> pd.DataFrame:
             & (filtered[COLS["date"]].dt.date <= end)
         ]
 
-    return filtered.copy()
+    filtered = filtered.copy()
+
+    with col_exp:
+        _render_export_bar(
+            filtered, oficina, date_range, sem_filtro=len(filtered) == len(df)
+        )
+
+    return filtered
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Exportação (mesma barra de ações da página principal, ao lado dos filtros)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _filters_description(oficina: str, date_range) -> str:
+    periodo = ""
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        start, end = date_range
+        periodo = f" · {start.strftime('%d/%m/%Y')} a {end.strftime('%d/%m/%Y')}"
+    return f"{oficina}{periodo}"
+
+
+def _xlsx_href(filtered: pd.DataFrame) -> str:
+    """Data-URI do Excel agrupado por fornecedor. Propaga falhas de geração."""
+    xlsx_b64 = base64.b64encode(get_xlsx_bytes(filtered)).decode()
+    return (
+        "data:application/vnd.openxmlformats-officedocument"
+        f".spreadsheetml.sheet;base64,{xlsx_b64}"
+    )
+
+
+def _render_export_bar(
+    filtered: pd.DataFrame, oficina: str, date_range, sem_filtro: bool
+) -> None:
+    """
+    Sem filtro (todos os registros): apenas Excel — o relatório PDF com todas as
+    linhas do histórico é pesado demais para ser embutido no navegador.
+    Com filtro: Excel + prévia/impressão em PDF (somente tabela, sem cards).
+
+    A barra é renderizada dentro da linha de filtros, ANTES dos cards e dos
+    gráficos. Por isso ela é uma fronteira defensiva: uma falha ao montar o
+    Excel ou o HTML da prévia degrada apenas a exportação e nunca derruba o
+    resto da página. `page_guard` não serve aqui — ele só captura
+    DatabaseUnavailableError, e estas falhas são de geração de arquivo.
+    """
+    st.markdown(
+        f"<p style='font-size:13.5px;font-weight:500;margin:0 0 8px;"
+        f"color:{COLORS['text_primary']}'>📤 Exportar</p>",
+        unsafe_allow_html=True,
+    )
+
+    if filtered.empty:
+        st.caption("Nenhum registro para exportar.")
+        return
+
+    try:
+        save_href = _xlsx_href(filtered)
+    except Exception:  # noqa: BLE001 — fronteira defensiva local
+        logger.exception("Falha ao gerar o Excel do histórico de defeitos")
+        st.warning(
+            "⚠️ Não foi possível gerar o arquivo de exportação agora. "
+            "Ajuste os filtros ou tente novamente em instantes."
+        )
+        return
+
+    html_page = None
+    if not sem_filtro:
+        try:
+            html_page = _generate_defeitos_tabela_html(
+                filtered, _filters_description(oficina, date_range)
+            )
+        except Exception:  # noqa: BLE001 — a prévia falha, o Excel continua válido
+            logger.exception("Falha ao gerar a prévia em PDF do histórico de defeitos")
+
+    if html_page is None:
+        pdf_button  = ""
+        script_html = ""
+    else:
+        html_b64 = base64.b64encode(html_page.encode("utf-8")).decode()
+        pdf_button = (
+            '<button class="abtn abtn-print" onclick="openPreview()">'
+            "Prévia / Imprimir PDF</button>"
+        )
+        script_html = f"""
+<script>
+  const _HTML_B64 = "{html_b64}";
+  function openPreview() {{
+    try {{
+      const bytes = Uint8Array.from(atob(_HTML_B64), c => c.charCodeAt(0));
+      const html  = new TextDecoder("utf-8").decode(bytes);
+      const win   = window.open("", "_blank");
+      if (win) {{
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+      }} else {{
+        const blob = new Blob([html], {{ type: "text/html;charset=utf-8" }});
+        window.open(URL.createObjectURL(blob), "_blank");
+      }}
+    }} catch (err) {{
+      console.error("Erro ao abrir prévia:", err);
+      alert("Não foi possível abrir a prévia. Permita popups para este site.");
+    }}
+  }}
+</script>"""
+
+    components.html(
+        f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    background: transparent;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }}
+  .action-btns {{ display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }}
+  .abtn {{
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 9px 16px; border-radius: 10px; cursor: pointer;
+    font-size: 12.5px; font-weight: 600; letter-spacing: 0.4px;
+    white-space: nowrap; text-decoration: none;
+    transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+    line-height: 1; color: #0D1B17;
+  }}
+  .abtn-print {{
+    background: #F2F7F5;
+    border: 1px solid rgba(0,229,160,0.50);
+    box-shadow: 0 0 14px rgba(0,229,160,0.12);
+  }}
+  .abtn-print:hover {{
+    background: rgba(0,229,160,0.20);
+    border-color: rgba(0,229,160,0.80);
+    box-shadow: 0 0 20px rgba(0,229,160,0.28);
+    transform: translateY(-1px);
+  }}
+  .abtn-save {{
+    background: rgba(0,229,160,0.22);
+    border: 1px solid rgba(0,229,160,0.55);
+    box-shadow: 0 0 14px rgba(0,229,160,0.18);
+  }}
+  .abtn-save:hover {{
+    background: rgba(0,229,160,0.35);
+    border-color: #0D1B17;
+    box-shadow: 0 0 24px rgba(0,229,160,0.38);
+    transform: translateY(-1px);
+  }}
+  .abtn:active {{ transform: translateY(0); }}
+</style>
+</head>
+<body>
+<div class="action-btns">
+  {pdf_button}
+  <a class="abtn abtn-save" href="{save_href}" download="historico_defeitos_fornecedor.xlsx">
+    Salvar por Fornecedor
+  </a>
+</div>
+{script_html}
+</body>
+</html>""",
+        height=44,
+    )
+
+    if sem_filtro:
+        st.caption(
+            f"⚠️ Sem filtro aplicado: os {len(filtered):,} registros serão exportados "
+            "**apenas em Excel**. Filtre por oficina ou período para habilitar a prévia em PDF."
+        )
+    elif html_page is None:
+        st.caption(
+            f"✦ {len(filtered):,} registro(s) filtrado(s). "
+            "A prévia em PDF está indisponível no momento — o Excel continua funcionando."
+        )
+    else:
+        st.caption(f"✦ {len(filtered):,} registro(s) filtrado(s), agrupados por fornecedor.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

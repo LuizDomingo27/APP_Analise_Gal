@@ -58,6 +58,27 @@ def _b(formatted: str, raw_val: float, threshold: float) -> str:
     return f"<strong class='hi'>{formatted}</strong>" if raw_val > threshold else formatted
 
 
+def _fmt_int(value, sep: bool = True) -> str:
+    """
+    Formata ORDEM MESTRE / REAL CORTADO / Qtd para exibição.
+
+    `_cast_types` (src/data/loader.py) não converte ORDEM MESTRE nem REAL
+    CORTADO para numérico — elas chegam como `object` e podem conter texto
+    ("OM-100"), vazio ou NaN. Um `int(value)` direto levanta ValueError e
+    derruba o relatório inteiro por causa de uma única célula. Aqui, o valor
+    numérico é formatado (com separador de milhar quando `sep`), e qualquer
+    outra coisa é exibida como o texto original.
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return "—"
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        texto = str(value).strip()
+        return texto or "—"
+    return f"{n:,}" if sep else f"{n}"
+
+
 def _build_rows(fdf: pd.DataFrame, thr: dict) -> str:
     d = fdf.copy()
     d[COLS["date"]]      = d[COLS["date"]].dt.strftime("%d/%m/%Y")
@@ -71,11 +92,11 @@ def _build_rows(fdf: pd.DataFrame, thr: dict) -> str:
         return (
             "<tr>"
             f"<td class='tdl'>{row[COLS['supplier']]}</td>"
-            f"<td>{int(row[COLS['order']]):,}</td>"
+            f"<td>{_fmt_int(row[COLS['order']])}</td>"
             f"<td>{row[COLS['date']]}</td>"
             f"<td>{_b(f'{qty:,}', qty, thr['qty'])}</td>"
             f"<td class='tdl'>{row[COLS['defect']]}</td>"
-            f"<td>{int(row[COLS['real_cut']]):,}</td>"
+            f"<td>{_fmt_int(row[COLS['real_cut']])}</td>"
             f"<td>{_b(f'{mins:,.2f}', mins, thr['mins'])}</td>"
             f"<td>{_b(f'R$ {vbrl:,.2f}', vbrl, thr['vbrl'])}</td>"
             "</tr>"
@@ -330,6 +351,70 @@ def _generate_html(fdf: pd.DataFrame, tdf: pd.DataFrame) -> str:
 </html>"""
 
 
+# ── HTML generator for Defect History (table only, no KPI cards) ──────────────
+
+def _generate_defeitos_tabela_html(
+    fdf: pd.DataFrame,
+    filters_desc: str,
+    titulo: str = "🗂️ Histórico de Defeitos",
+    badge: str = "Registro Permanente",
+) -> str:
+    """Relatório do histórico de defeitos — apenas a tabela de dados, sem cards."""
+    thr  = _get_thresholds(fdf)
+    rows = _build_rows(fdf, thr)
+    n    = len(fdf)
+    ts   = datetime.now(_TZ_BR).strftime("%d/%m/%Y %H:%M")
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{titulo} · Qualidade</title>
+<style>
+{_SHARED_CSS}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <div class="htitle">{titulo} · <span>Controle de Qualidade</span></div>
+    <div class="hsub">{filters_desc} &nbsp;·&nbsp; <strong>{n:,}</strong> registros &nbsp;·&nbsp; Gerado em {ts}</div>
+  </div>
+  <div class="hright">
+    <span class="hbadge">{badge}</span>
+    <button class="pdf-btn" onclick="window.print()">🖨️ Baixar PDF</button>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="sec">Dados Detalhados &nbsp;({n:,} registros)</div>
+<div class="tw">
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:left">Fornecedor</th>
+      <th>OM</th><th>Data Produção</th><th>Qtd</th>
+      <th style="text-align:left">Remonte / Defeito</th>
+      <th>Real Cortado</th><th>Min. Gerados</th><th>Valor (R$)</th>
+    </tr>
+  </thead>
+  <tbody>{rows}</tbody>
+</table>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <span>{titulo} · Controle de Qualidade</span>
+  <span>{n:,} registros &nbsp;·&nbsp; {ts}</span>
+</div>
+
+</body>
+</html>"""
+
+
 def _dias_para_vencer_info(dias_para_vencer: int) -> tuple[str, str]:
     """
     Retorna (texto, cor) para o indicador de Dias para Vencer no documento
@@ -382,11 +467,11 @@ def _generate_cobranca_html(
         rows += (
             "<tr>"
             f"<td class='tdl'>{supplier}</td>"
-            f"<td>{int(row[COLS['order']]):,}</td>"
+            f"<td>{_fmt_int(row[COLS['order']])}</td>"
             f"<td>{dt_str}</td>"
             f"<td>{_b(f'{qty:,}', qty, thr['qty'])}</td>"
             f"<td class='tdl'>{row[COLS['defect']]}</td>"
-            f"<td>{int(row[COLS['real_cut']]):,}</td>"
+            f"<td>{_fmt_int(row[COLS['real_cut']])}</td>"
             f"<td>{_b(f'{mins:,.2f}', mins, thr['mins'])}</td>"
             f"<td>{_b(f'R$ {vbrl:,.2f}', vbrl, thr['vbrl'])}</td>"
             "</tr>"
@@ -525,19 +610,9 @@ def _generate_historico_html(
         if isinstance(val_prod, pd.Timestamp):
             val_prod = val_prod.strftime("%d/%m/%Y")
 
-        # Formatar números de forma amigável
-        try:
-            qty_val = f"{int(qty):,}"
-        except Exception:
-            qty_val = str(qty)
-        try:
-            om_val = f"{int(om)}"
-        except Exception:
-            om_val = str(om)
-        try:
-            rc_val = f"{int(real_cortado):,}"
-        except Exception:
-            rc_val = str(real_cortado)
+        qty_val = _fmt_int(qty)
+        om_val  = _fmt_int(om, sep=False)   # OM é identificador, sem milhar
+        rc_val  = _fmt_int(real_cortado)
 
         rows += (
             "<tr>"
