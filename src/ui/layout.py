@@ -468,6 +468,24 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
             for h in headers
         )
 
+        # Conversões seguras: valores ausentes (NaN/None) ou não-numéricos
+        # não devem derrubar a renderização da tabela inteira.
+        def _to_int(v):
+            if pd.isna(v):
+                return None
+            try:
+                return int(float(v))
+            except (ValueError, TypeError):
+                return None
+
+        def _to_float(v):
+            if pd.isna(v):
+                return None
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                return None
+
         rows_html = ""
         for i, (_, row) in enumerate(display.iterrows()):
             row_bg = (
@@ -487,30 +505,45 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
                 )
 
                 if key == COLS["value_brl"]:
-                    fval     = float(val)
-                    badge_bg = "rgba(0,229,160,0.28)" if fval > thr_val else "rgba(0,229,160,0.10)"
-                    badge_cl = "#0D1B17" if fval > thr_val else "#4A5752"
-                    cells += (
-                        f'<td style="{base_td}">'
-                        f'<span style="background:{badge_bg};color:{badge_cl};'
-                        f'padding:3px 9px;border-radius:6px;'
-                        f'font-size:12px;font-weight:600;white-space:nowrap;">'
-                        f'R$ {fval:,.2f}</span></td>'
-                    )
+                    fval = _to_float(val)
+                    if fval is None:
+                        cells += f'<td style="{base_td};color:#4A5752;">—</td>'
+                    else:
+                        badge_bg = "rgba(0,229,160,0.28)" if fval > thr_val else "rgba(0,229,160,0.10)"
+                        badge_cl = "#0D1B17" if fval > thr_val else "#4A5752"
+                        cells += (
+                            f'<td style="{base_td}">'
+                            f'<span style="background:{badge_bg};color:{badge_cl};'
+                            f'padding:3px 9px;border-radius:6px;'
+                            f'font-size:12px;font-weight:600;white-space:nowrap;">'
+                            f'R$ {fval:,.2f}</span></td>'
+                        )
                 elif key == COLS["pct_remonte"]:
-                    cells += f'<td style="{base_td};color:#4A5752;">{float(val):.2f}%</td>'
+                    fval = _to_float(val)
+                    txt  = "—" if fval is None else f"{fval:.2f}%"
+                    cells += f'<td style="{base_td};color:#4A5752;">{txt}</td>'
                 elif key == COLS["quantity"]:
-                    ival   = int(val)
-                    weight = "font-weight:600;" if ival > thr_qty else ""
-                    cells += f'<td style="{base_td}{weight}">{ival:,}</td>'
+                    ival = _to_int(val)
+                    if ival is None:
+                        cells += f'<td style="{base_td};color:#4A5752;">—</td>'
+                    else:
+                        weight = "font-weight:600;" if ival > thr_qty else ""
+                        cells += f'<td style="{base_td}{weight}">{ival:,}</td>'
                 elif key == COLS["minutes"]:
-                    fval   = float(val)
-                    weight = "font-weight:600;" if fval > thr_mins else ""
-                    cells += f'<td style="{base_td}{weight}">{fval:,.2f}</td>'
+                    fval = _to_float(val)
+                    if fval is None:
+                        cells += f'<td style="{base_td};color:#4A5752;">—</td>'
+                    else:
+                        weight = "font-weight:600;" if fval > thr_mins else ""
+                        cells += f'<td style="{base_td}{weight}">{fval:,.2f}</td>'
                 elif key == COLS["real_cut"]:
-                    cells += f'<td style="{base_td}">{int(val):,}</td>'
+                    ival = _to_int(val)
+                    txt  = "—" if ival is None else f"{ival:,}"
+                    cells += f'<td style="{base_td}">{txt}</td>'
                 elif key == COLS["order"]:
-                    cells += f'<td style="{base_td};color:#4A5752;">{int(val)}</td>'
+                    ival = _to_int(val)
+                    txt  = "—" if ival is None else f"{ival}"
+                    cells += f'<td style="{base_td};color:#4A5752;">{txt}</td>'
                 elif key == COLS["date"]:
                     cells += f'<td style="{base_td};color:#4A5752;">{val}</td>'
                 else:
