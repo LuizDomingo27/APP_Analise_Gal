@@ -32,8 +32,12 @@ class DataProcessor:
         return int(self.df[COLS["order"]].nunique())
 
     def avg_remonte_rate_pct(self) -> float:
-        """Average remonte rate across all records, as a percentage."""
-        return float(self.df[COLS["pct_remonte"]].mean() * 100)
+        """Average remonte rate across all records, as a percentage.
+        Returns 0.0 (not NaN) when there are no records to average."""
+        if self.df.empty:
+            return 0.0
+        mean = self.df[COLS["pct_remonte"]].mean()
+        return float(mean * 100) if pd.notna(mean) else 0.0
 
     # ── Defect type ──────────────────────────────────────────────────────────
 
@@ -212,6 +216,82 @@ class DataProcessor:
             grp[["Período", "Valor Total (R$)", "Variação (R$)", "Variação (%)"]]
             .reset_index(drop=True)
         )
+
+    # ── Resumo por fornecedor (para o filtro por faixa) ───────────────────────
+
+    #: Métricas do filtro por faixa → coluna agregada de `supplier_summary`.
+    SUPPLIER_SUMMARY_METRICS = {
+        "remonte": "total_remonte",
+        "ordens":  "total_ordens",
+        "valor":   "total_valor",
+    }
+
+    def supplier_summary(self) -> pd.DataFrame:
+        """Agrega o histórico por fornecedor (uma linha por fornecedor).
+
+        Colunas do DataFrame retornado, ordenado por valor total desc.:
+            fornecedor       → str
+            total_remonte    → int   (nº de registros/remontes do fornecedor)
+            total_quantidade → int   (soma da quantidade — peças com defeito)
+            total_ordens     → int   (ordens mestre — OM — únicas)
+            total_valor      → float (soma do valor do processo, R$)
+
+        DataFrame vazio na entrada → mesmas colunas, sem linhas.
+        """
+        cols = [
+            "fornecedor", "total_remonte", "total_quantidade",
+            "total_ordens", "total_valor",
+        ]
+        if self.df.empty:
+            return pd.DataFrame(columns=cols)
+
+        grp = self.df.groupby(COLS["supplier"])
+        summary = (
+            pd.DataFrame(
+                {
+                    "total_remonte":    grp.size(),
+                    "total_quantidade": grp[COLS["quantity"]].sum(),
+                    "total_ordens":     grp[COLS["order"]].nunique(),
+                    "total_valor":      grp[COLS["value_brl"]].sum(),
+                }
+            )
+            .reset_index()
+            .rename(columns={COLS["supplier"]: "fornecedor"})
+        )
+        summary["total_remonte"]    = summary["total_remonte"].astype(int)
+        summary["total_quantidade"] = summary["total_quantidade"].astype(int)
+        summary["total_ordens"]     = summary["total_ordens"].astype(int)
+        summary["total_valor"]      = summary["total_valor"].astype(float)
+        return (
+            summary[cols]
+            .sort_values("total_valor", ascending=False)
+            .reset_index(drop=True)
+        )
+
+    def supplier_summary_in_range(
+        self, metric: str, low: float, high: float
+    ) -> pd.DataFrame:
+        """`supplier_summary` restrito aos fornecedores cuja `metric` cai em [low, high].
+
+        `metric` ∈ SUPPLIER_SUMMARY_METRICS ("remonte" | "ordens" | "valor").
+        Intervalo inclusivo nas duas pontas; se `low > high` os limites são
+        invertidos automaticamente. Retorna as mesmas colunas de `supplier_summary`.
+        """
+        try:
+            col = self.SUPPLIER_SUMMARY_METRICS[metric]
+        except KeyError:
+            raise ValueError(
+                f"Métrica inválida: {metric!r}. "
+                f"Use uma de {sorted(self.SUPPLIER_SUMMARY_METRICS)}."
+            ) from None
+
+        summary = self.supplier_summary()
+        if summary.empty:
+            return summary
+
+        lo, hi = (low, high) if low <= high else (high, low)
+        mask = (summary[col] >= lo) & (summary[col] <= hi)
+        return summary[mask].reset_index(drop=True)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

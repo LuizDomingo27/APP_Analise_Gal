@@ -6,10 +6,13 @@ Always 2 charts per row.
 """
 
 import base64
+import logging
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 from src.data.processor import DataProcessor
+
+logger = logging.getLogger(__name__)
 from src.charts import builder
 from src.charts.render import echart
 from src.ui.preview import _generate_html
@@ -316,16 +319,37 @@ def _render_suppliers(processor: DataProcessor) -> None:
 
 # ── Section 4: Tabela de dados detalhados ─────────────────────────────────────
 
+@st.cache_data(show_spinner=False)
+def _build_export_payloads(df: pd.DataFrame, full_df: pd.DataFrame) -> tuple[str, str]:
+    """
+    Gera (uma vez por conjunto de dados) o HTML da prévia de impressão e o Excel
+    agrupado por fornecedor, já em base64. Cacheado por conteúdo dos DataFrames:
+    sem cache, este trabalho pesado (workbook openpyxl formatado célula-a-célula
+    + página HTML) rodava a CADA rerun do dashboard — ou seja, a cada clique/
+    mudança de filtro — mesmo quando o usuário não exporta nada.
+    """
+    html_page  = _generate_html(df, full_df)
+    html_b64   = base64.b64encode(html_page.encode("utf-8")).decode()
+    xlsx_bytes = get_xlsx_bytes(df)
+    xlsx_b64   = base64.b64encode(xlsx_bytes).decode()
+    return html_b64, xlsx_b64
+
+
 def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
 
     _section("Dados Detalhados", "📋")
 
-    # ── Gera conteúdo em memória ───────────────────────────────────────────────
-    html_page = _generate_html(processor.df, full_df)
-    html_b64  = base64.b64encode(html_page.encode("utf-8")).decode()
+    # ── Gera conteúdo em memória (cacheado; nunca derruba a página) ────────────
+    try:
+        html_b64, xlsx_b64 = _build_export_payloads(processor.df, full_df)
+    except Exception:  # noqa: BLE001 — fronteira: exportação não pode quebrar o dashboard
+        logger.exception("Falha ao gerar arquivos de exportação (HTML/Excel)")
+        st.warning(
+            "⚠️ Não foi possível preparar os arquivos de exportação agora. "
+            "Os dados continuam disponíveis na tabela abaixo."
+        )
+        html_b64 = xlsx_b64 = None
 
-    xlsx_bytes = get_xlsx_bytes(processor.df)
-    xlsx_b64   = base64.b64encode(xlsx_bytes).decode()
     save_href  = (
         "data:application/vnd.openxmlformats-officedocument"
         f".spreadsheetml.sheet;base64,{xlsx_b64}"

@@ -9,18 +9,23 @@ CHANGELOG v13:
 - Histórico movido para src/data/cobranca_history.py.
 """
 
+import logging
 import math
 from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
 
+logger = logging.getLogger(__name__)
+
 from src.config.settings import COLS, COLORS
 from src.services.charge_exporter import generate_charge_excel
+from src.data.database import DatabaseUnavailableError
 from src.data.cobranca_history import (
     remove_supplier_from_df,
     save_charge_to_history,
 )
+from src.data.divida_dividida import split_records, save_split_charge
 from src.utils.cnpj_validator import validate_cnpj, format_cnpj
 from src.auth.session import is_admin
 import base64
@@ -531,6 +536,9 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
     # ── Prazo da cobrança (data cobrança / vencimento / dias a vencer) ───────
     data_cobranca, data_vencimento, dias_para_vencer = _render_charge_dates_input(selected_supplier)
 
+    # ── Divisão da cobrança (opcional) ────────────────────────────────────────
+    split_active, perc_frac = _render_split_input(selected_supplier, sel_total)
+
     # ── Tabela de registros ───────────────────────────────────────────────────
     st.markdown(
         f'<p style="font-size:12px;color:{COLORS["text_subtle"]}; '
@@ -542,8 +550,19 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
     df_sel = df[df[COLS["supplier"]] == selected_supplier][_DISPLAY_COLS].copy()
     df_sel[COLS["date"]] = df_sel[COLS["date"]].dt.strftime("%d/%m/%Y")
 
-    display_rename = {c: _COL_LABELS[c] for c in _DISPLAY_COLS if c in df_sel.columns}
-    df_display = df_sel.rename(columns=display_rename)
+    # Quando a cobrança é dividida, tudo que é exibido/pré-visualizado/impresso e
+    # gravado para o fornecedor passa a ser a metade corrigida. A metade da
+    # empresa (df_empresa) é preservada para gravar em tb_divida_dividida.
+    if split_active:
+        df_fornecedor, df_empresa = split_records(df_sel, perc_frac)
+    else:
+        df_fornecedor, df_empresa = df_sel, None
+    charge_total = float(
+        pd.to_numeric(df_fornecedor[COLS["value_brl"]], errors="coerce").fillna(0).sum()
+    )
+
+    display_rename = {c: _COL_LABELS[c] for c in _DISPLAY_COLS if c in df_fornecedor.columns}
+    df_display = df_fornecedor.rename(columns=display_rename)
 
     val_label = _COL_LABELS[COLS["value_brl"]]
     df_display[val_label] = df_display[val_label].apply(
@@ -566,10 +585,10 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
             border-radius:8px; padding:10px 18px; margin-top:8px;
         ">
             <span style="font-size:13px;color:{COLORS['text_muted']};margin-right:12px">
-                Total a Cobrar:
+                Total a Cobrar{' (dividido)' if split_active else ''}:
             </span>
             <span style="font-size:18px;font-weight:700;color:#E74C3C">
-                R$ {sel_total:,.2f}
+                R$ {charge_total:,.2f}
             </span>
         </div>
         """,
@@ -582,8 +601,8 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
     _render_charge_button(
         supplier=selected_supplier,
         cnpj=cnpj_formatted,
-        total=sel_total,
-        df_records=df_sel,
+        total=charge_total,
+        df_records=df_fornecedor,
         df_display=df_display,
         cnpj_valid=cnpj_valid,
         df_full=df,
@@ -592,6 +611,8 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
         dias_para_vencer=dias_para_vencer,
         reference_date=date_start,
         reference_date_end=date_end,
+        split_active=split_active,
+        df_records_empresa=df_empresa,
     )
 
 
@@ -925,6 +946,61 @@ def _render_cnpj_input(supplier: str) -> tuple[bool, str]:
     return cnpj_valid, cnpj_formatted
 
 
+def _render_split_input(supplier: str, total: float) -> tuple[bool, float]:
+    """
+    Controle opcional de divisão da cobrança. Quando ativado, o admin define o
+    percentual do valor absorvido pela empresa; o restante é o que será
+    efetivamente cobrado do fornecedor.
+
+    Retorna (split_active, perc_empresa_frac), com a fração em [0.01, 0.99].
+    O percentual fica em [1, 99] para manter as duas metades sempre com valor.
+    """
+    split_active = st.checkbox(
+        "➗ Dividir esta cobrança com o fornecedor",
+        key=f"split_toggle_{supplier}",
+        help="Divide o valor entre o fornecedor e a empresa. A parte do "
+             "fornecedor segue para o Histórico de Cobranças; a parte da "
+             "empresa é registrada na aba Cobrança Dividida.",
+    )
+    if not split_active:
+        return False, 0.0
+
+    col_pct, col_resume = st.columns([1, 2])
+    with col_pct:
+        perc_empresa = st.number_input(
+            "Percentual absorvido pela empresa (%)",
+            min_value=1.0,
+            max_value=99.0,
+            value=50.0,
+            step=5.0,
+            format="%.1f",
+            key=f"split_perc_{supplier}",
+            help="Fração do valor que a empresa assume. O fornecedor é cobrado "
+                 "pelo restante. Aplica-se proporcionalmente a valor, minutos e peças.",
+        )
+
+    perc_frac        = perc_empresa / 100.0
+    valor_empresa    = total * perc_frac
+    valor_fornecedor = total - valor_empresa
+
+    with col_resume:
+        st.markdown(
+            f"""
+            <div style="margin-top:1.8rem;font-size:12px;color:{COLORS['text_muted']}">
+                Fornecedor será cobrado:
+                <strong style="color:#E74C3C">R$ {valor_fornecedor:,.2f}</strong>
+                ({100 - perc_empresa:.0f}%) &nbsp;·&nbsp;
+                Empresa absorve:
+                <strong style="color:#0F86A3">R$ {valor_empresa:,.2f}</strong>
+                ({perc_empresa:.0f}%)
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    return True, perc_frac
+
+
 def _render_charge_button(
     supplier: str,
     cnpj: str,
@@ -938,6 +1014,8 @@ def _render_charge_button(
     dias_para_vencer: int,
     reference_date: date,
     reference_date_end: date,
+    split_active: bool = False,
+    df_records_empresa: pd.DataFrame | None = None,
 ) -> None:
     """
     Gerencia o fluxo:
@@ -964,52 +1042,77 @@ def _render_charge_button(
         if not is_admin():
             st.error("Acesso negado: apenas administradores podem lançar cobranças.")
             return
-        with st.spinner("Salvando cobrança e atualizando base de dados…"):
-            # 1. Prepara df para exportação
-            df_export = df_records[[c for c in _DISPLAY_COLS if c in df_records.columns]].copy()
-            date_col  = COLS["date"]
-            if df_export[date_col].dtype == object:
-                df_export[date_col] = pd.to_datetime(
-                    df_export[date_col], dayfirst=True, errors="coerce"
+        try:
+            with st.spinner("Salvando cobrança e atualizando base de dados…"):
+                # 1. Prepara df para exportação
+                df_export = df_records[[c for c in _DISPLAY_COLS if c in df_records.columns]].copy()
+                date_col  = COLS["date"]
+                if df_export[date_col].dtype == object:
+                    df_export[date_col] = pd.to_datetime(
+                        df_export[date_col], dayfirst=True, errors="coerce"
+                    )
+
+                # 2. Gera documento Excel da cobrança
+                excel_bytes = generate_charge_excel(
+                    supplier=supplier,
+                    cnpj=cnpj,
+                    df_records=df_export,
+                    display_cols=_DISPLAY_COLS,
+                    col_labels=_COL_LABELS,
                 )
 
-            # 2. Gera documento Excel da cobrança
-            excel_bytes = generate_charge_excel(
-                supplier=supplier,
-                cnpj=cnpj,
-                df_records=df_export,
-                display_cols=_DISPLAY_COLS,
-                col_labels=_COL_LABELS,
-            )
+                # Gera HTML da cobrança
+                html_page = _generate_cobranca_html(
+                    supplier=supplier,
+                    cnpj=cnpj,
+                    total=total,
+                    df_sel=df_records,
+                    df_full=df_full,
+                    data_cobranca=data_cobranca,
+                    data_vencimento=data_vencimento,
+                    dias_para_vencer=dias_para_vencer,
+                )
 
-            # Gera HTML da cobrança
-            html_page = _generate_cobranca_html(
-                supplier=supplier,
-                cnpj=cnpj,
-                total=total,
-                df_sel=df_records,
-                df_full=df_full,
-                data_cobranca=data_cobranca,
-                data_vencimento=data_vencimento,
-                dias_para_vencer=dias_para_vencer,
-            )
+                # 3. Persiste a cobrança:
+                #    - Sem divisão: grava a cobrança inteira em historico_cobrancas.
+                #    - Com divisão: grava, na MESMA transação, a metade do fornecedor
+                #      (df_export, já corrigida) em historico_cobrancas e a metade da
+                #      empresa (df_records_empresa) em tb_divida_dividida, ambas com o
+                #      mesmo COD_LANCAMENTO. Assim nunca fica meia cobrança gravada.
+                if split_active and df_records_empresa is not None:
+                    cod_lancamento = save_split_charge(
+                        df_fornecedor=df_export,
+                        df_empresa=df_records_empresa,
+                        cnpj=cnpj,
+                        data_cobranca=data_cobranca,
+                        data_vencimento=data_vencimento,
+                    )
+                else:
+                    cod_lancamento = save_charge_to_history(
+                        supplier=supplier,
+                        cnpj=cnpj,
+                        total=total,
+                        df_records=df_export,
+                        display_cols=_DISPLAY_COLS,
+                        data_cobranca=data_cobranca,
+                        data_vencimento=data_vencimento,
+                    )
 
-            # 3. Salva no histórico bd_cobranca.xlsx
-            cod_lancamento = save_charge_to_history(
-                supplier=supplier,
-                cnpj=cnpj,
-                total=total,
-                df_records=df_export,
-                display_cols=_DISPLAY_COLS,
-                data_cobranca=data_cobranca,
-                data_vencimento=data_vencimento,
+                # 4. Remove fornecedor do DataFrame ativo (apenas registros do
+                #    Período de Referência selecionado)
+                remove_supplier_from_df(
+                    supplier, COLS["supplier"], reference_date, reference_date_end
+                )
+        except DatabaseUnavailableError as exc:
+            st.error(f"⚠️ {exc}")
+            return
+        except Exception:
+            logger.exception("Falha ao lançar cobrança para fornecedor %s", supplier)
+            st.error(
+                "⚠️ Não foi possível concluir o lançamento da cobrança. "
+                "Nenhuma alteração foi salva. Tente novamente ou contate o suporte."
             )
-
-            # 4. Remove fornecedor do DataFrame ativo (apenas registros do
-            #    Período de Referência selecionado)
-            remove_supplier_from_df(
-                supplier, COLS["supplier"], reference_date, reference_date_end
-            )
+            return
 
         now_str = date.today().strftime("%d/%m/%Y")
         st.session_state[charge_key]                 = True

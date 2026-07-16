@@ -584,6 +584,123 @@ def _generate_cobranca_html(
 </html>"""
 
 
+# ── HTML generator for Supplier Range Filter (grouped by supplier) ────────────
+
+def _generate_fornecedores_faixa_html(
+    summary: pd.DataFrame,
+    metric_label: str,
+    low: float,
+    high: float,
+    is_valor: bool,
+) -> str:
+    """Relatório dos fornecedores dentro da faixa selecionada, agrupados.
+
+    `summary` segue o contrato de `DataProcessor.supplier_summary`
+    (colunas fornecedor / total_remonte / total_ordens / total_valor).
+    Colunas do relatório: Fornecedor · Total de Remontes · Total de Ordens ·
+    Total em Valor (R$).
+    """
+    ts = datetime.now(_TZ_BR).strftime("%d/%m/%Y %H:%M")
+    n = len(summary)
+
+    if is_valor:
+        faixa_desc = f"{metric_label}: R$ {low:,.2f} – R$ {high:,.2f}"
+    else:
+        faixa_desc = f"{metric_label}: {int(low):,} – {int(high):,}"
+
+    tot_remonte = int(summary["total_remonte"].sum()) if n else 0
+    tot_qtd     = int(summary["total_quantidade"].sum()) if n else 0
+    tot_ordens  = int(summary["total_ordens"].sum()) if n else 0
+    tot_valor   = float(summary["total_valor"].sum()) if n else 0.0
+
+    rows = ""
+    for _, row in summary.iterrows():
+        rows += (
+            "<tr>"
+            f"<td class='tdl'>{row['fornecedor']}</td>"
+            f"<td>{int(row['total_remonte']):,}</td>"
+            f"<td>{int(row['total_quantidade']):,}</td>"
+            f"<td>{int(row['total_ordens']):,}</td>"
+            f"<td>R$ {float(row['total_valor']):,.2f}</td>"
+            "</tr>"
+        )
+    if not rows:
+        rows = "<tr><td class='tdl' colspan='5'>Nenhum fornecedor nesta faixa.</td></tr>"
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fornecedores por Faixa · Qualidade</title>
+<style>
+{_SHARED_CSS}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <div class="htitle">🎯 Fornecedores por Faixa · <span>Controle de Qualidade</span></div>
+    <div class="hsub">{faixa_desc} &nbsp;·&nbsp; <strong>{n:,}</strong> fornecedor(es) &nbsp;·&nbsp; Gerado em {ts}</div>
+  </div>
+  <div class="hright">
+    <span class="hbadge">Filtro por Faixa</span>
+    <button class="pdf-btn" onclick="window.print()">🖨️ Baixar PDF</button>
+  </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="sec">Resumo da Faixa</div>
+<div class="cards-3">
+  <div class="card">
+    <div class="card-top"><span class="cico">🏭</span></div>
+    <div class="clabel">Fornecedores</div>
+    <div class="cv">{n:,}</div>
+    <div class="cdetail">dentro da faixa</div>
+  </div>
+  <div class="card">
+    <div class="card-top"><span class="cico">🔁</span></div>
+    <div class="clabel">Total de Remontes</div>
+    <div class="cv">{tot_remonte:,}</div>
+    <div class="cdetail">{tot_qtd:,} peças na faixa</div>
+  </div>
+  <div class="card">
+    <div class="card-top"><span class="cico">💰</span></div>
+    <div class="clabel">Total em Valor</div>
+    <div class="cv">R$ {tot_valor:,.2f}</div>
+    <div class="cdetail">{tot_ordens:,} ordens (OM)</div>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="sec">Fornecedores &nbsp;({n:,})</div>
+<div class="tw">
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:left">Fornecedor</th>
+      <th>Total de Remontes</th>
+      <th>Quantidade</th>
+      <th>Total de Ordens</th>
+      <th>Total em Valor (R$)</th>
+    </tr>
+  </thead>
+  <tbody>{rows}</tbody>
+</table>
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <span>Fornecedores por Faixa · Controle de Qualidade</span>
+  <span>{n:,} fornecedor(es) &nbsp;·&nbsp; {ts}</span>
+</div>
+
+</body>
+</html>"""
+
+
 # ── HTML generator for Billing History Report ─────────────────────────────────
 
 def _generate_historico_html(

@@ -6,15 +6,8 @@ Apenas acessível para administradores.
 
 import streamlit as st
 
-# Configuração da página (deve ser a primeira chamada Streamlit)
-st.set_page_config(
-    page_title="Gerenciar Usuários",
-    page_icon="👥",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-from src.auth.session import require_login, render_user_sidebar
+from src.auth.session import require_login
+from src.ui.error_boundary import page_guard
 from src.ui.user_manager import render_user_manager_page
 
 # CSS consistente com a identidade visual do app
@@ -64,19 +57,17 @@ st.markdown(
 )
 
 
+@page_guard
 def main() -> None:
     # 1. Garante que o usuário está logado
     user = require_login()
-    
-    # 2. Renderiza a barra lateral com informações do usuário logado
-    render_user_sidebar()
-    
-    # 3. Restrição de segurança: apenas admin pode visualizar
+
+    # 2. Restrição de segurança: apenas admin pode visualizar
     if user.get("role") != "admin":
         st.error("Acesso negado. Esta página é restrita a administradores.")
         st.stop()
-        
-    # 4. Renderiza a UI do gerenciamento
+
+    # 3. Renderiza a UI do gerenciamento
     render_user_manager_page()
 
 

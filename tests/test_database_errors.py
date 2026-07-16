@@ -31,12 +31,14 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "_database_url", lambda: sqlite_url)
     db.get_engine.clear()
     auth_db.create_users_table.clear()
+    auth_db.list_users.clear()
     yield db_path
     # Alguns testes substituem `db.get_engine` por um objeto simples (sem
     # cache_resource) para simular falha de conexão — nesse caso não há
     # `.clear()` para chamar, e não há nada a limpar mesmo.
     getattr(db.get_engine, "clear", lambda: None)()
     getattr(auth_db.create_users_table, "clear", lambda: None)()
+    auth_db.list_users.clear()
 
 
 # ── Tradução de mensagens: cada categoria de erro técnico vira uma mensagem

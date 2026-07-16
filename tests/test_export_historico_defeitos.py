@@ -47,6 +47,7 @@ class _FakeSt:
     def __init__(self):
         self.captions: list[str] = []
         self.warnings: list[str] = []
+        self.session_state: dict = {}
 
     def markdown(self, *_args, **_kwargs):
         pass
@@ -56,6 +57,10 @@ class _FakeSt:
 
     def warning(self, text):
         self.warnings.append(text)
+
+    def button(self, *_args, **_kwargs):
+        # O botão-gatilho da Tabela de Frequência nunca é "clicado" nos testes.
+        return False
 
 
 class _FakeComponents:
@@ -72,6 +77,11 @@ def ui(monkeypatch):
     fake_st, fake_comp = _FakeSt(), _FakeComponents()
     monkeypatch.setattr(hdui, "st", fake_st)
     monkeypatch.setattr(hdui, "components", fake_comp)
+    # _xlsx_href é @st.cache_data: o cache é por conteúdo do DataFrame e sobrevive
+    # entre testes. Como os testes trocam get_xlsx_bytes por versões que falham,
+    # limpamos o cache para que cada teste exercite a geração de verdade (senão um
+    # sucesso cacheado de outro teste mascara o caminho de falha).
+    hdui._xlsx_href.clear()
     return fake_st, fake_comp
 
 

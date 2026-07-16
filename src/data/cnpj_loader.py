@@ -5,10 +5,13 @@ Estratégia de match: normalização + busca em múltiplas colunas de nome.
 """
 
 import io
+import logging
 import unicodedata
 from pathlib import Path
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # ── Path do arquivo de referência (bundled com o app) ─────────────────────────
 _CNPJ_FILE = Path(__file__).parent.parent.parent / "Bd_Cnpj.xlsx"
@@ -70,6 +73,7 @@ def load_cnpj_db(file_bytes: bytes | None = None) -> pd.DataFrame | None:
         return df
 
     except Exception:
+        logger.exception("Falha ao carregar base de CNPJ")
         return None
 
 

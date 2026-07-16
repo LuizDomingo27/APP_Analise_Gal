@@ -52,7 +52,7 @@ def append_payments(df_rows: pd.DataFrame) -> None:
         df_rows.to_sql("pagamentos_concluidos", conn, if_exists="append", index=False)
         conn.commit()
 
-    st.cache_data.clear()
+    load_payments.clear()
 
 
 @st.cache_data

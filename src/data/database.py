@@ -188,6 +188,53 @@ HISTORICO_DEFEITOS_DDL = """
 """
 
 
+# DDL do catálogo de imagens dos defeitos. Cada tipo de defeito (REMONTE) tem
+# uma imagem de referência guardada como bytea diretamente no Postgres — o
+# catálogo é pequeno e fixo, então não compensa introduzir o Supabase Storage
+# (pacote + SERVICE_ROLE_KEY) para isso. `chave_normalizada` é o slug do defeito
+# (sem acento/espaço/prefixo "img", em maiúsculas) e serve de chave de busca:
+# é por ela que a tela de consulta casa o defeito de um registro com a imagem.
+# Exposta como constante pública para o _ensure_schema() idempotente da camada
+# src/data/defeitos_imagens.py (mesmo motivo do HISTORICO_DEFEITOS_DDL).
+DEFEITOS_IMAGENS_DDL = """
+    CREATE TABLE IF NOT EXISTS defeitos_imagens (
+        id                  bigserial PRIMARY KEY,
+        chave_normalizada   text UNIQUE NOT NULL,
+        defeito_nome        text NOT NULL,
+        imagem_bytes        bytea NOT NULL,
+        mime_type           text NOT NULL DEFAULT 'image/png',
+        atualizado_em       timestamptz DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
+
+# DDL da tabela da parte da cobrança absorvida pela empresa quando uma cobrança
+# é dividida entre o fornecedor e a empresa. Schema espelha `devolucoes` (mesmas
+# colunas) para permitir reutilizar os geradores de xlsx/HTML sem colunas extras
+# quebrando o layout. STATUS_COBRANCA guarda sempre "Dividida". Exposta como
+# constante pública para o _ensure_schema() idempotente de src/data/divida_dividida.py
+# (mesmo motivo de HISTORICO_DEFEITOS_DDL: sobreviver a hot-reload do Streamlit).
+DIVIDA_DIVIDIDA_DDL = """
+    CREATE TABLE IF NOT EXISTS tb_divida_dividida (
+        id                              bigserial PRIMARY KEY,
+        "COD_LANCAMENTO"                text,
+        "DATA_COBRANCA"                 text,
+        "DATA_VENCIMENTO"               text,
+        "DATA_PAGAMENTO"                text,
+        "CNPJ_FORNECEDOR"               text,
+        "STATUS_COBRANCA"               text,
+        "ORDEM MESTRE"                  text,
+        "DATA DE PRODUÇÃO ACABAMENTO"   text,
+        "FORNECEDOR"                    text,
+        "QUANTIDADE"                    integer,
+        "REMONTE"                       text,
+        "REAL CORTADO"                  text,
+        "MINUTOS GERADOS"               double precision,
+        "VALOR DO PROCESSO BRL"         double precision
+    )
+"""
+
+
 _DDL_STATEMENTS = [
     """
     CREATE TABLE IF NOT EXISTS registros_defeitos (
@@ -209,6 +256,8 @@ _DDL_STATEMENTS = [
     )
     """,
     HISTORICO_DEFEITOS_DDL,
+    DEFEITOS_IMAGENS_DDL,
+    DIVIDA_DIVIDIDA_DDL,
     """
     CREATE TABLE IF NOT EXISTS historico_cobrancas (
         id                              bigserial PRIMARY KEY,

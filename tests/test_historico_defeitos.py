@@ -32,11 +32,13 @@ def temp_db(tmp_path, monkeypatch):
     db.get_engine.clear()
     db.create_tables.clear()
     hd.load_historico.clear()
+    hd.get_supplier_counts.clear()
     db.create_tables()
     yield db_path
     db.get_engine.clear()
     db.create_tables.clear()
     hd.load_historico.clear()
+    hd.get_supplier_counts.clear()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

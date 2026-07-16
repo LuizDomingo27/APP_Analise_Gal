@@ -11,15 +11,7 @@ fornecedores ficam na própria página e são restritos a administradores.
 
 import streamlit as st
 
-# Page config (deve ser o primeiro call Streamlit da página)
-st.set_page_config(
-    page_title="Histórico de Defeitos",
-    page_icon="🗂️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-from src.auth.session import render_user_sidebar, require_login
+from src.auth.session import require_login
 from src.ui.error_boundary import page_guard
 from src.ui.historico_defeitos import render_historico_page
 
@@ -120,7 +112,6 @@ st.markdown(
 @page_guard
 def main() -> None:
     require_login()
-    render_user_sidebar()
     render_historico_page()
 
 

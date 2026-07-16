@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Pagina: Correção de Registros
+Página: Imagens de Defeitos
 Entry point do Streamlit multi-page.
 
-Página isolada para corrigir valores digitados incorretamente na base
-ativa (ex.: fornecedor com/sem acento, caractere especial). Afeta somente
-a tabela registros_defeitos — nunca historico_cobrancas ou
-pagamentos_concluidos.
+Catálogo visual dos defeitos: administradores cadastram uma imagem de
+referência por tipo de defeito; qualquer usuário pesquisa por oficina e vê uma
+tabela com OM, oficina, quantidade de peças com defeito, nome do defeito e a
+imagem correspondente ao lado. A fonte pode ser o histórico permanente ou a
+base ativa. Cadastro e exclusão são restritos a administradores.
 """
 
 import streamlit as st
 
-from src.config.settings import COLORS
-from src.ui.records_editor import render_records_editor_page
-from src.auth.session import require_admin
+from src.auth.session import require_login
 from src.ui.error_boundary import page_guard
+from src.ui.defeitos_imagens import render_defeitos_imagens_page
 
 # CSS consistente com a identidade visual do app principal
 st.markdown(
@@ -35,7 +35,7 @@ st.markdown(
         color: #4A5752 !important;
         font-size: 13px !important;
     }
-    /* ── Inputs / Select / Multiselect / DateInput / NumberInput / TextArea ── */
+    /* ── Inputs / Select / DateInput / TextArea ── */
     .stTextInput input, .stNumberInput input, .stDateInput input,
     .stTextArea textarea, .stSelectbox [data-baseweb="select"] > div,
     .stMultiSelect [data-baseweb="select"] > div,
@@ -69,6 +69,20 @@ st.markdown(
     /* SVG icons inside inputs (chevrons, calendar, clear) */
     [data-baseweb="select"] svg, [data-baseweb="input"] svg,
     .stDateInput svg { fill: #00B884 !important; color:#0D1B17 !important; }
+    /* ── Upload area ── */
+    [data-testid="stFileUploader"] {
+        background: #F2F7F5 !important;
+        border: 1px dashed rgba(0,184,132,0.45) !important;
+        border-radius: 8px !important;
+    }
+    /* ── Expander ── */
+    [data-testid="stExpander"] {
+        background: #FFFFFF !important;
+        border: 1px solid rgba(0,0,0,0.08) !important;
+        border-radius: 10px !important;
+    }
+    [data-testid="stExpander"] summary { font-size: 13px !important; color: #0D1B17 !important; }
+    /* ── Buttons ── */
     .stButton > button {
         background: rgba(0,229,160,0.15) !important;
         color:#00805C !important;
@@ -87,10 +101,8 @@ st.markdown(
         font-weight: 600 !important;
         font-size: 13px !important;
     }
-    .stButton > button[kind="primary"]:hover {
-        background: rgba(0,184,132,1.0) !important;
-    }
-    [data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
+    .stButton > button[kind="primary"]:hover { background: rgba(0,184,132,1.0) !important; }
+    [data-testid="stMetricValue"] { color: #0D1B17 !important; }
     hr { border-color: rgba(0,0,0,0.06) !important; }
     </style>
     """,
@@ -98,41 +110,10 @@ st.markdown(
 )
 
 
-def _render_no_data_message() -> None:
-    st.markdown(
-        f"""
-        <div style="
-            display:flex; flex-direction:column; align-items:center;
-            justify-content:center; min-height:50vh; text-align:center; gap:14px;
-        ">
-            <div style="font-size:48px; opacity:0.18">📂</div>
-            <p style="font-size:18px;font-weight:600;
-                      color:{COLORS['text_primary']};margin:0">
-                Base principal não encontrada
-            </p>
-            <p style="font-size:13px;color:{COLORS['text_subtle']};
-                      margin:0;max-width:400px;line-height:1.7">
-                Acesse a página
-                <strong style="color:{COLORS['text_primary']}">
-                    Análise de Defeitos
-                </strong>
-                e faça a carga inicial da planilha histórica.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 @page_guard
 def main() -> None:
-    require_admin()
-
-    if "df" not in st.session_state:
-        _render_no_data_message()
-        return
-
-    render_records_editor_page()
+    require_login()
+    render_defeitos_imagens_page()
 
 
 main()

@@ -1,7 +1,7 @@
 """
 Filter UI layer.
-Renders sidebar controls and returns the filtered DataFrame.
-No chart or metric code here.
+Renders the filter controls (in the main body, below the navbar) and returns
+the filtered DataFrame. No chart or metric code here.
 """
 
 import streamlit as st
@@ -11,47 +11,53 @@ from src.config.settings import COLS
 
 def render_filters(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Render the three sidebar filters (supplier, defect type, date range)
-    and return the filtered DataFrame.
+    Render the three filters (supplier, defect type, date range) in the main
+    body — laid out in three columns below the navbar — and return the
+    filtered DataFrame.
     """
-    st.sidebar.markdown(
+    st.markdown(
         '<p style="font-size:11px;text-transform:uppercase;letter-spacing:1px;'
-        'color:#4A5752;margin-bottom:12px">⚙️ Filtros</p>',
+        'color:#4A5752;margin:0 0 8px">⚙️ Filtros</p>',
         unsafe_allow_html=True,
     )
 
+    col_sup, col_def, col_date = st.columns(3)
+
     # ── Filter 1: Supplier ────────────────────────────────────────────────────
     all_suppliers = sorted(df[COLS["supplier"]].unique().tolist())
-    selected_suppliers = st.sidebar.multiselect(
-        "🏭 Fornecedor",
-        options=all_suppliers,
-        default=[],
-        placeholder="Todos os fornecedores",
-        key="filter_supplier",
-    )
+    with col_sup:
+        selected_suppliers = st.multiselect(
+            "🏭 Fornecedor",
+            options=all_suppliers,
+            default=[],
+            placeholder="Todos os fornecedores",
+            key="filter_supplier",
+        )
 
     # ── Filter 2: Defect type ─────────────────────────────────────────────────
     all_defects = sorted(df[COLS["defect"]].unique().tolist())
-    selected_defects = st.sidebar.multiselect(
-        "⚠️ Tipo de Defeito",
-        options=all_defects,
-        default=[],
-        placeholder="Todos os defeitos",
-        key="filter_defect",
-    )
+    with col_def:
+        selected_defects = st.multiselect(
+            "⚠️ Tipo de Defeito",
+            options=all_defects,
+            default=[],
+            placeholder="Todos os defeitos",
+            key="filter_defect",
+        )
 
     # ── Filter 3: Date range ──────────────────────────────────────────────────
     min_date = df[COLS["date"]].min().date()
     max_date = df[COLS["date"]].max().date()
 
-    date_range = st.sidebar.date_input(
-        "📅 Período",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
-        format="DD/MM/YYYY",
-        key="filter_date",
-    )
+    with col_date:
+        date_range = st.date_input(
+            "📅 Período",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+            format="DD/MM/YYYY",
+            key="filter_date",
+        )
 
     # ── Apply filters ─────────────────────────────────────────────────────────
     filtered = df.copy()

@@ -4,6 +4,7 @@ Gerenciamento do histórico de cobranças — tabela historico_cobrancas (Postgr
 """
 
 import io
+import logging
 import uuid
 import hashlib
 from datetime import date
@@ -19,6 +20,8 @@ from sqlalchemy import text
 
 from src.config.settings import COLS, DATASET_DIR
 from src.data.database import create_tables, get_connection
+
+logger = logging.getLogger(__name__)
 
 # ── Legado: mantido para imports externos que ainda referenciam este caminho ──
 _BASE_DIR   = Path(__file__).resolve().parents[2]
@@ -198,25 +201,24 @@ def _cod_lancamento_fallback(cnpj: str, data_cobranca: str) -> str:
 
 # ── Público: escrita ──────────────────────────────────────────────────────────
 
-def save_charge_to_history(
-    supplier: str,
-    cnpj: str,
-    total: float,
+def build_charge_rows(
     df_records: pd.DataFrame,
-    display_cols: list[str],
+    cod_lancamento: str,
     data_cobranca: date,
     data_vencimento: date,
-) -> str:
+    cnpj: str,
+    status: str = STATUS_DEFAULT,
+) -> pd.DataFrame:
     """
-    Persiste os registros da cobrança na tabela historico_cobrancas (Postgres).
-    Retorna o COD_LANCAMENTO gerado.
+    Monta o DataFrame pronto para `to_sql` nas tabelas de cobrança
+    (historico_cobrancas / tb_divida_dividida): seleciona as colunas de dados
+    (_SAVE_COLS), formata datas para dd/mm/aaaa e insere as colunas de metadados
+    (código, datas, CNPJ, status) nas posições esperadas pelo schema.
+
+    Extraído de save_charge_to_history para ser reaproveitado pela gravação
+    atômica da cobrança dividida (src/data/divida_dividida.py), evitando
+    duplicar a lógica de montagem das linhas.
     """
-    create_tables()
-
-    data_cobranca_br   = data_cobranca.strftime("%d/%m/%Y")
-    data_vencimento_br = data_vencimento.strftime("%d/%m/%Y")
-    cod_lancamento     = gerar_cod_lancamento()
-
     cols_to_save = [c for c in _SAVE_COLS if c in df_records.columns]
     df_save = df_records[cols_to_save].copy()
 
@@ -225,17 +227,47 @@ def save_charge_to_history(
             df_save[col] = df_save[col].dt.strftime("%d/%m/%Y")
 
     df_save.insert(0, "COD_LANCAMENTO",  cod_lancamento)
-    df_save.insert(1, "DATA_COBRANCA",   data_cobranca_br)
-    df_save.insert(2, "DATA_VENCIMENTO", data_vencimento_br)
+    df_save.insert(1, "DATA_COBRANCA",   data_cobranca.strftime("%d/%m/%Y"))
+    df_save.insert(2, "DATA_VENCIMENTO", data_vencimento.strftime("%d/%m/%Y"))
     df_save.insert(3, "DATA_PAGAMENTO",  "")
     df_save.insert(4, "CNPJ_FORNECEDOR", cnpj)
-    df_save.insert(5, COLS["status"],    STATUS_DEFAULT)
+    df_save.insert(5, COLS["status"],    status)
+    return df_save
+
+
+def save_charge_to_history(
+    supplier: str,
+    cnpj: str,
+    total: float,
+    df_records: pd.DataFrame,
+    display_cols: list[str],
+    data_cobranca: date,
+    data_vencimento: date,
+    cod_lancamento: str | None = None,
+) -> str:
+    """
+    Persiste os registros da cobrança na tabela historico_cobrancas (Postgres).
+    Retorna o COD_LANCAMENTO usado.
+
+    `cod_lancamento` pode ser informado pelo chamador para que a metade do
+    fornecedor (aqui) e a metade da empresa (tb_divida_dividida) compartilhem o
+    mesmo código numa cobrança dividida. Quando omitido, é gerado internamente
+    (comportamento legado).
+    """
+    create_tables()
+
+    if cod_lancamento is None:
+        cod_lancamento = gerar_cod_lancamento()
+
+    df_save = build_charge_rows(
+        df_records, cod_lancamento, data_cobranca, data_vencimento, cnpj
+    )
 
     with get_connection() as conn:
         df_save.to_sql("historico_cobrancas", conn, if_exists="append", index=False)
         conn.commit()
 
-    st.cache_data.clear()
+    load_history.clear()
     return cod_lancamento
 
 
@@ -311,7 +343,13 @@ def update_lancamento_status(
 
             conn.commit()
 
-        st.cache_data.clear()
+        load_history.clear()
+        if novo_status == "Pago":
+            from src.data.payment_history import load_payments
+            load_payments.clear()
+        elif novo_status == "Devolução":
+            from src.data.devolucao_history import load_devolucoes
+            load_devolucoes.clear()
         return True
 
     except Exception:
@@ -342,7 +380,9 @@ def migrate_paid_to_payments() -> int:
         conn.commit()
 
     count = len(df_pago)
-    st.cache_data.clear()
+    load_history.clear()
+    from src.data.payment_history import load_payments
+    load_payments.clear()
     return count
 
 
@@ -374,7 +414,9 @@ def migrate_contestado_to_devolucao() -> int:
         conn.commit()
 
     count = len(df_legado)
-    st.cache_data.clear()
+    load_history.clear()
+    from src.data.devolucao_history import load_devolucoes
+    load_devolucoes.clear()
     return count
 
 
@@ -408,10 +450,10 @@ def remove_supplier_from_df(
             & (df_atual[COLS["date"]].dt.date <= date_end)
         )
 
-    df_filtrado = df_atual[~mask_del].copy()
-    df_filtrado.reset_index(drop=True, inplace=True)
-    st.session_state["df"] = df_filtrado
-
+    # A exclusão no Postgres roda ANTES de tocar no session_state: se a
+    # cobrança já foi gravada em historico_cobrancas/tb_divida_dividida e o
+    # DELETE aqui falhar, o registro fonte precisa continuar visível (senão
+    # o admin não percebe e pode lançar a mesma cobrança de novo).
     try:
         create_tables()
         with get_connection() as conn:
@@ -436,8 +478,20 @@ def remove_supplier_from_df(
                 )
             conn.commit()
     except Exception as exc:
-        st.warning(f"⚠️ Não foi possível remover do banco: {exc}")
+        logger.exception(
+            "Falha ao remover fornecedor %s de registros_defeitos após lançar cobrança",
+            supplier,
+        )
+        st.error(
+            f"⚠️ A cobrança foi lançada, mas não foi possível remover os registros "
+            f"do fornecedor da base ativa ({exc}). Recarregue a página antes de lançar "
+            f"uma nova cobrança para este fornecedor, para evitar cobrança duplicada."
+        )
         return
+
+    df_filtrado = df_atual[~mask_del].copy()
+    df_filtrado.reset_index(drop=True, inplace=True)
+    st.session_state["df"] = df_filtrado
 
     from src.data.loader import load_data_from_disk
     load_data_from_disk.clear()
