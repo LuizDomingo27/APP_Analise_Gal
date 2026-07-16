@@ -22,6 +22,31 @@ st.set_page_config(**PAGE_CONFIG)
 st.markdown(
     """
     <style>
+    /* ── Contrato de espaço do cabeçalho ──────────────────────────────────
+       O chip do usuário logado (render_user_topbar, em src/auth/session.py) é
+       `position: fixed`, então ele NÃO ocupa espaço no fluxo: a navbar não sabe
+       que ele existe e centraliza os links por cima dele. Estas duas medidas são
+       as duas metades de um mesmo contrato e precisam andar juntas:
+         --nv-chip-max     largura máxima do chip (session.py trunca o nome nela);
+         --nv-chip-gutter  faixa reservada ao chip à ESQUERDA dos links = margem
+                           do chip (1rem) + o chip + um respiro de 12px. O lado
+                           direito não leva faixa equivalente: lá o slot da
+                           toolbar (Deploy + ⋮) já ocupa quase a mesma largura, e
+                           é o que equilibra a centralização.
+       Encolhe com a tela (min(..., 30vw)) para que, no celular, o chip não coma
+       a faixa inteira do cabeçalho. */
+    :root {
+        --nv-chip-left: 1rem;
+        --nv-chip-max: min(190px, 30vw);
+        --nv-chip-gutter: calc(var(--nv-chip-left) + var(--nv-chip-max) + 12px);
+    }
+    /* Abaixo de 768px não há navbar no topo, mas surge o botão de abrir a
+       sidebar no MESMO canto do chip. Sem este recuo os dois se sobrepõem e o
+       hambúrguer — única navegação no celular — fica inalcançável sob o chip. */
+    @media (max-width: 767.98px) {
+        :root { --nv-chip-left: 3.5rem; }
+    }
+
     /* ── Global text default (prevents invisible/black text after blur) ── */
     html, body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"],
     .stMarkdown, .stText, p, span, label, div {
@@ -35,11 +60,19 @@ st.markdown(
     .main .block-container { padding-top: 1.5rem; padding-bottom: 3rem; max-width: 1400px; }
 
     /* ── Sidebar removida (todos os componentes migraram para o corpo) ── */
-    [data-testid="stSidebar"],
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="collapsedControl"],
-    button[kind="headerNoPadding"][data-testid="stBaseButton-headerNoPadding"] {
-        display: none !important;
+    /* Só a partir de 768px. Abaixo disso o Streamlit NÃO renderiza a navbar do
+       topo: ele move os links da st.navigation para a sidebar e mostra o botão
+       de abrir (hambúrguer). Esconder a sidebar em qualquer largura, como era
+       antes, deixava o app sem NENHUMA navegação no celular — só dava para ver
+       a página em que o usuário já estava. O corte é exatamente onde a navbar
+       do topo aparece, então nunca existem as duas ao mesmo tempo. */
+    @media (min-width: 768px) {
+        [data-testid="stSidebar"],
+        [data-testid="stSidebarCollapsedControl"],
+        [data-testid="collapsedControl"],
+        button[kind="headerNoPadding"][data-testid="stBaseButton-headerNoPadding"] {
+            display: none !important;
+        }
     }
 
     /* ── Navbar (st.navigation position="top") centralizada ── */
@@ -49,51 +82,91 @@ st.markdown(
        qualquer profundidade dentro do header. O combinador descendente impede
        que o próprio header case (o que deslocaria a toolbar); em wrappers de
        link único, centralizar não tem efeito visual. */
+    /* `safe center` e não `center`: se ainda assim os links transbordarem, o
+       `safe` faz o excedente sobrar só à direita. Com `center` puro ele vazaria
+       pelos dois lados e o lado esquerdo cairia sobre o chip do usuário. */
     [data-testid="stHeader"] :has([data-testid="stTopNavLinkContainer"]) {
-        justify-content: center !important;
+        justify-content: safe center !important;
     }
-    /* O gap fica restrito à linha (rc-overflow, classe estável da lib de
-       overflow — não é hash do Emotion). Sem esse escopo o gap vazaria para a
-       stToolbar, que é flex e também contém os links. Se a lib mudar, só o
-       espaçamento se perde: a centralização acima continua valendo. */
+    /* A linha dos links (rc-overflow, classe estável da lib de overflow — não é
+       hash do Emotion). O escopo a mantém fora da stToolbar, que é flex e também
+       contém os links. */
     [data-testid="stHeader"] .rc-overflow:has([data-testid="stTopNavLinkContainer"]) {
-        gap: 4px !important;
+        /* `gap: 0` é obrigatório, não estética: o espaçamento entre os links vem
+           do padding de cada um (ver stTopNavLink abaixo). A rc-overflow decide o
+           que cabe somando a LARGURA DOS ITENS e ignora o gap — com gap ela
+           conclui que tudo cabe, não abre o menu "more", e os itens que sobram
+           são silenciosamente cortados pela borda do box. Com 6 páginas (admin) e
+           gap de 22px isso apagava "Usuários" da barra a partir de ~950px de
+           janela, sem deixar rastro. Como padding entra na medição, a lib passa a
+           ver o tamanho real e manda o excedente para o "more". */
+        gap: 0 !important;
+        /* Reserva a faixa do chip à ESQUERDA. É `margin` e não `padding` de
+           propósito: a rc-overflow decide quantos links cabem medindo a PRÓPRIA
+           largura, e o padding não a reduz — ela acharia que tem a largura cheia,
+           deixaria links de fora da caixa e o excedente cairia sobre o chip. A
+           margem encolhe o elemento de verdade, então a medição fica correta e o
+           que não couber vai para o menu "more" — o responsivo da própria lib. */
+        margin-left: var(--nv-chip-gutter) !important;
+        padding-left: 0 !important;
+        /* Sem margem à direita de propósito. A rc-overflow tem um IRMÃO ali — o
+           slot da toolbar (Deploy + ⋮), ~200px — que já faz o papel de faixa
+           daquele lado. Espelhar `--nv-chip-gutter` aqui reservaria 218px ALÉM
+           dos 200 da toolbar e empurraria os links ~100px para a esquerda: o
+           oposto de centralizar.
+           O `flex: 1` faz a rc-overflow crescer da faixa do chip até a toolbar em
+           vez de encolher no conteúdo (o `0 1 auto` padrão a ancorava à esquerda
+           da faixa). Como a faixa do chip (≈218px) e a toolbar (≈216px) têm
+           quase a mesma largura, o meio dessa banda cai praticamente no meio da
+           tela — e continua caindo se a toolbar mudar de tamanho, porque a banda
+           é medida, não fixada. O `safe center` acima então centraliza os links
+           dentro dela. */
+        flex: 1 1 auto !important;
     }
 
-    /* ── Navbar — estilo "Pílula sólida" (aprovado) ──────────────────────── */
-    /* Header: fundo branco, sombra suave e um traço de acento verde embaixo. */
+    /* ── Navbar — estilo "Minimalista" (aprovado) ─────────────────────────── */
+    /* Header: fundo branco e um único fio separando do conteúdo. Sem sombra e
+       sem o traço de acento verde que havia aqui: no minimalista o verde marca
+       só o item ativo, e um header verde competiria com ele. */
     [data-testid="stHeader"] {
         background: #FFFFFF !important;
-        box-shadow: inset 0 -2px 0 0 rgba(0,184,132,0.28),
-                    0 4px 18px rgba(4,40,30,0.05) !important;
+        border-bottom: 1px solid rgba(13,27,23,0.08) !important;
+        box-shadow: none !important;
     }
 
-    /* Cada link do topo (o <a> stTopNavLink) vira uma pílula. */
+    /* Cada link do topo (o <a> stTopNavLink) é texto puro: sem fundo e sem raio.
+       O padding lateral de 11px é o que separa um link do outro (11+11 = os mesmos
+       22px de respiro que um `gap: 22px` daria), mas por ser padding ele entra na
+       largura que a rc-overflow mede — ver o `gap: 0` acima. De quebra, a área
+       clicável passa a incluir esse respiro. */
     [data-testid="stHeader"] [data-testid="stTopNavLink"] {
-        border-radius: 11px !important;
-        padding: 7px 13px !important;
+        background: transparent !important;
+        border-radius: 0 !important;
+        padding: 14px 11px !important;
         font-size: 13px !important;
-        font-weight: 500 !important;
-        color: #5A6B64 !important;
-        transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease !important;
+        font-weight: 400 !important;
+        color: #6B7A74 !important;
+        transition: color 0.16s ease, box-shadow 0.16s ease !important;
     }
     [data-testid="stHeader"] [data-testid="stTopNavLink"] * { color: inherit !important; }
 
-    /* Hover (item inativo): tinta verde suave. */
+    /* Hover (item inativo): só o texto escurece. */
     [data-testid="stHeader"] [data-testid="stTopNavLink"]:not([aria-current="page"]):hover {
-        background: rgba(0,201,150,0.12) !important;
-        color: #00805C !important;
+        background: transparent !important;
+        color: #0D1B17 !important;
     }
 
-    /* Item ativo: pílula verde gradiente, texto escuro, leve elevação. */
+    /* Item ativo: texto escuro + traço verde embaixo.
+       O traço é `box-shadow: inset` e NÃO `border-bottom` de propósito: a borda
+       somaria 2px à altura do link e o desalinharia dos inativos ao lado. */
     [data-testid="stHeader"] [data-testid="stTopNavLink"][aria-current="page"] {
-        background: linear-gradient(135deg,#00E5A0,#00B884) !important;
-        color: #04231B !important;
-        font-weight: 600 !important;
-        box-shadow: 0 3px 10px rgba(0,184,132,0.35) !important;
+        background: transparent !important;
+        color: #0D1B17 !important;
+        font-weight: 500 !important;
+        box-shadow: inset 0 -2px 0 0 #00B884 !important;
     }
     [data-testid="stHeader"] [data-testid="stTopNavLink"][aria-current="page"] * {
-        color: #04231B !important;
+        color: #0D1B17 !important;
     }
 
     /* ── Inputs / Select / Multiselect / DateInput / NumberInput / TextArea ── */
@@ -332,18 +405,21 @@ def main() -> None:
     # ── Páginas disponíveis (navbar no topo) ──────────────────────────────────
     # As páginas restritas a administradores só são registradas para admins,
     # de modo que usuários comuns nem veem o item na navbar.
+    # Sem `icon=`: no estilo minimalista o emoji de cada item competia com o
+    # traço verde que marca a página ativa. Os títulos também encurtam — sem os
+    # ícones a barra fica só com texto, e nomes longos a enchem depressa.
     pages = [
-        st.Page("pages/1_Dashboard.py", title="Análise de Defeitos", icon="🔍", default=True),
-        st.Page("pages/2_Historico_Defeitos.py", title="Histórico de Defeitos", icon="🗂️"),
-        st.Page("pages/3_Historico_Cobranca.py", title="Cobranças", icon="🗃️"),
-        st.Page("pages/4_Defeitos_Imagens.py", title="Imagens de Defeitos", icon="🖼️"),
+        st.Page("pages/1_Dashboard.py", title="Análise de defeitos", default=True),
+        st.Page("pages/2_Historico_Defeitos.py", title="Histórico"),
+        st.Page("pages/3_Historico_Cobranca.py", title="Cobranças"),
+        st.Page("pages/4_Defeitos_Imagens.py", title="Imagens"),
     ]
     if is_admin():
         pages.append(
-            st.Page("pages/5_Editar_Registros.py", title="Editar Registros", icon="🛠️")
+            st.Page("pages/5_Editar_Registros.py", title="Registros")
         )
         pages.append(
-            st.Page("pages/6_Gerenciar_Usuarios.py", title="Usuários", icon="👥")
+            st.Page("pages/6_Gerenciar_Usuarios.py", title="Usuários")
         )
 
     nav = st.navigation(pages, position="top")
