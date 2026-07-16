@@ -18,6 +18,7 @@ e relançada como `DatabaseUnavailableError`, com uma mensagem já em
 português e segura de mostrar ao usuário final via `st.error(str(exc))`.
 """
 
+import hashlib
 import logging
 import os
 from contextlib import contextmanager
@@ -148,7 +149,38 @@ def get_connection():
         raise DatabaseUnavailableError(_friendly_db_message(exc)) from exc
     finally:
         conn.close()
-    
+
+
+# ── Concorrência ──────────────────────────────────────────────────────────────
+
+def advisory_lock(conn: Connection, name: str) -> None:
+    """
+    Serializa, entre TODOS os processos do app, a seção crítica identificada por
+    `name`. Use quando uma operação lê o estado do banco e decide a escrita a
+    partir do que leu (ex.: "quais datas já existem?" → insere as que faltam):
+    sem trava, duas sessões simultâneas leem o mesmo estado e ambas escrevem,
+    duplicando os dados.
+
+    A trava é de transação (`pg_advisory_xact_lock`): é liberada automaticamente
+    no commit ou no rollback, então não vaza se a operação falhar no meio. Exige
+    que `conn` já esteja numa transação — chame-a como primeira instrução do
+    bloco `with get_connection()`.
+
+    No SQLite (usado apenas nos testes) é um no-op: não existem advisory locks,
+    e o SQLite já serializa escritores com uma trava global de banco.
+    """
+    if conn.dialect.name != "postgresql":
+        return
+    # pg_advisory_xact_lock exige bigint; deriva um inteiro de 64 bits estável
+    # a partir do nome (hash do Python é salgado por processo — não serve).
+    key = int.from_bytes(
+        hashlib.blake2b(name.encode("utf-8"), digest_size=8).digest(),
+        "big",
+        signed=True,
+    )
+    conn.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": key})
+
+
 # ── Schema ────────────────────────────────────────────────────────────────────
 
 # Nomes de coluna são mantidos EXATAMENTE como no schema SQLite original

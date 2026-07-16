@@ -15,6 +15,14 @@ PAGE_CONFIG = {
     "initial_sidebar_state": "expanded",
 }
 
+# ── Cache ─────────────────────────────────────────────────────────────────────
+# TTL de toda leitura cacheada do banco. O app roda em vários processos ao mesmo
+# tempo (máquina local + Streamlit Cloud), e o `.clear()` do write path só
+# invalida o cache do processo que escreveu — os demais continuariam servindo
+# dados velhos indefinidamente. O TTL é o único mecanismo que alcança os outros
+# processos: limita a defasagem entre eles a, no máximo, este intervalo.
+CACHE_TTL_SECONDS = 60
+
 # ── Palette ──────────────────────────────────────────────────────────────────
 COLORS = {
     "primary":       "#00B884",

@@ -13,13 +13,18 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy import text
 
-from src.config.settings import COLS
-from src.data.database import DatabaseUnavailableError, create_tables, get_connection
+from src.config.settings import CACHE_TTL_SECONDS, COLS
+from src.data.database import (
+    DatabaseUnavailableError,
+    advisory_lock,
+    create_tables,
+    get_connection,
+)
 
 
 # ── Público: carregamento do banco ────────────────────────────────────────────
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_data_from_disk() -> pd.DataFrame | None:
     """
     Lê todos os registros da tabela registros_defeitos do Postgres.
@@ -69,6 +74,12 @@ def append_new_data(uploaded_file) -> dict | None:
         create_tables()
 
         with get_connection() as conn:
+            # Ler as datas existentes e decidir o que inserir a partir delas só
+            # é seguro se ninguém inserir no meio: sem a trava, dois uploads
+            # simultâneos do mesmo dia leem a mesma lista, ambos concluem que a
+            # data é nova e a base fica com os registros em dobro.
+            advisory_lock(conn, "import:registros_defeitos")
+
             rows = conn.execute(
                 text('SELECT DISTINCT "DATA DE PRODUÇÃO ACABAMENTO" FROM registros_defeitos')
             ).fetchall()

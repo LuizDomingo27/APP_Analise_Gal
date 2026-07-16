@@ -29,13 +29,14 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy import text
 
-from src.config.settings import COLS
+from src.config.settings import CACHE_TTL_SECONDS, COLS
 from src.data.database import DIVIDA_DIVIDIDA_DDL, create_tables, get_connection
 from src.data.cobranca_history import (
     HISTORY_LABELS,
     _COL_WIDTHS,
     build_charge_rows,
     gerar_cod_lancamento,
+    insert_charge_rows,
     STATUS_DEFAULT,
 )
 
@@ -155,8 +156,7 @@ def save_split_charge(
     )
 
     with get_connection() as conn:
-        rows_forn.to_sql("historico_cobrancas", conn, if_exists="append", index=False)
-        rows_emp.to_sql(_TABLE, conn, if_exists="append", index=False)
+        insert_charge_rows(conn, rows_forn, rows_emp)
         conn.commit()
 
     from src.data.cobranca_history import load_history
@@ -167,7 +167,7 @@ def save_split_charge(
 
 # ── Leitura ───────────────────────────────────────────────────────────────────
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_dividas_divididas() -> pd.DataFrame | None:
     """
     Carrega todas as parcelas da empresa (tb_divida_dividida). Retorna None se

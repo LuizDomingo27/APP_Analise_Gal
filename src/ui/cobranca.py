@@ -22,10 +22,10 @@ from src.config.settings import COLS, COLORS
 from src.services.charge_exporter import generate_charge_excel
 from src.data.database import DatabaseUnavailableError
 from src.data.cobranca_history import (
-    remove_supplier_from_df,
-    save_charge_to_history,
+    ChargeAlreadyLaunchedError,
+    launch_charge,
 )
-from src.data.divida_dividida import split_records, save_split_charge
+from src.data.divida_dividida import split_records
 from src.utils.cnpj_validator import validate_cnpj, format_cnpj
 from src.auth.session import is_admin
 import base64
@@ -1073,36 +1073,29 @@ def _render_charge_button(
                     dias_para_vencer=dias_para_vencer,
                 )
 
-                # 3. Persiste a cobrança:
-                #    - Sem divisão: grava a cobrança inteira em historico_cobrancas.
-                #    - Com divisão: grava, na MESMA transação, a metade do fornecedor
-                #      (df_export, já corrigida) em historico_cobrancas e a metade da
-                #      empresa (df_records_empresa) em tb_divida_dividida, ambas com o
-                #      mesmo COD_LANCAMENTO. Assim nunca fica meia cobrança gravada.
-                if split_active and df_records_empresa is not None:
-                    cod_lancamento = save_split_charge(
-                        df_fornecedor=df_export,
-                        df_empresa=df_records_empresa,
-                        cnpj=cnpj,
-                        data_cobranca=data_cobranca,
-                        data_vencimento=data_vencimento,
-                    )
-                else:
-                    cod_lancamento = save_charge_to_history(
-                        supplier=supplier,
-                        cnpj=cnpj,
-                        total=total,
-                        df_records=df_export,
-                        display_cols=_DISPLAY_COLS,
-                        data_cobranca=data_cobranca,
-                        data_vencimento=data_vencimento,
-                    )
-
-                # 4. Remove fornecedor do DataFrame ativo (apenas registros do
-                #    Período de Referência selecionado)
-                remove_supplier_from_df(
-                    supplier, COLS["supplier"], reference_date, reference_date_end
+                # 3. Persiste a cobrança numa única transação: reivindica (apaga)
+                #    os registros do fornecedor no Período de Referência e grava a
+                #    cobrança em historico_cobrancas — mais a metade da empresa em
+                #    tb_divida_dividida, com o mesmo COD_LANCAMENTO, quando há
+                #    divisão. Se outra sessão já lançou esta cobrança, não há
+                #    registros a reivindicar e nada é gravado.
+                cod_lancamento = launch_charge(
+                    supplier=supplier,
+                    cnpj=cnpj,
+                    df_records=df_export,
+                    data_cobranca=data_cobranca,
+                    data_vencimento=data_vencimento,
+                    reference_date=reference_date,
+                    reference_date_end=reference_date_end,
+                    df_empresa=(
+                        df_records_empresa
+                        if split_active and df_records_empresa is not None
+                        else None
+                    ),
                 )
+        except ChargeAlreadyLaunchedError as exc:
+            st.warning(f"⚠️ {exc}")
+            return
         except DatabaseUnavailableError as exc:
             st.error(f"⚠️ {exc}")
             return

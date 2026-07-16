@@ -21,10 +21,11 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy import text
 
-from src.config.settings import COLS
+from src.config.settings import CACHE_TTL_SECONDS, COLS
 from src.data.database import (
     HISTORICO_DEFEITOS_DDL,
     DatabaseUnavailableError,
+    advisory_lock,
     get_connection,
 )
 from src.data.loader import _cast_types, _validate
@@ -58,7 +59,7 @@ def _ensure_schema() -> None:
 
 # ── Público: leitura ──────────────────────────────────────────────────────────
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_historico() -> pd.DataFrame | None:
     """
     Carrega todo o histórico de defeitos da tabela historico_defeitos.
@@ -86,7 +87,7 @@ def load_historico() -> pd.DataFrame | None:
     return _cast_types(df)
 
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def get_supplier_counts() -> pd.DataFrame:
     """
     Valores distintos de FORNECEDOR no histórico com a contagem de registros
@@ -148,6 +149,11 @@ def append_historico(uploaded_file) -> dict | None:
     try:
         _ensure_schema()
         with get_connection() as conn:
+            # Esta tabela é o registro permanente e nunca apaga nada, então uma
+            # duplicação aqui é irreversível: a trava serializa a dedup por data
+            # para que dois uploads simultâneos do mesmo dia não insiram em dobro.
+            advisory_lock(conn, f"import:{_TABLE}")
+
             rows = conn.execute(
                 text(f'SELECT DISTINCT "DATA DE PRODUÇÃO ACABAMENTO" FROM {_TABLE}')
             ).fetchall()
