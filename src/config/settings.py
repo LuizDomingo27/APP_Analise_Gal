@@ -12,7 +12,11 @@ PAGE_CONFIG = {
     "page_title": "Análise Remontes",
     "page_icon": "⌚",
     "layout": "wide",
-    "initial_sidebar_state": "expanded",
+    # "collapsed" e não "expanded": a partir de 768px a sidebar é escondida por
+    # CSS (app.py) e este valor não tem efeito; abaixo disso ela é a navegação do
+    # app, e abrir sozinha faria a gaveta cobrir a página logo na entrada. Assim
+    # o celular abre no conteúdo, com o hambúrguer à mão.
+    "initial_sidebar_state": "collapsed",
 }
 
 # ── Cache ─────────────────────────────────────────────────────────────────────

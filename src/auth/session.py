@@ -93,33 +93,65 @@ def render_user_topbar() -> None:
     role_label = "Administrador" if role == "admin" else "Usuário"
     initial = (nome.strip()[:1] or "U").upper()
 
-    # Chip do usuário fixado no cabeçalho, alinhado à ESQUERDA. Com a navbar
-    # centralizada (oke width:100% + justify-content:center), o lado esquerdo
-    # fica livre e o chip não sobrepõe o primeiro link.
+    # Chip do usuário fixado no cabeçalho, alinhado à ESQUERDA. Por ser
+    # `position: fixed`, ele não ocupa espaço no fluxo — a navbar só não passa
+    # por cima dele porque o app.py reserva a faixa `--nv-chip-gutter` à esquerda
+    # dos links. As duas medidas formam um contrato: o chip nunca pode ultrapassar
+    # `--nv-chip-max`, senão volta a invadir a navbar. Daí o limite de largura com
+    # reticências abaixo — um nome longo trunca em vez de empurrar os links.
+    # O fallback do var() mantém o chip contido mesmo se o CSS global mudar.
     st.markdown(
         """
         <style>
         .st-key-user_topbar {
             position: fixed;
             top: 0.5rem;
-            left: 1rem;
+            /* No celular o app.py aumenta este recuo para o chip não cobrir o
+               botão que abre a sidebar (a navegação daquela largura). */
+            left: var(--nv-chip-left, 1rem);
             width: auto !important;
+            max-width: var(--nv-chip-max, 190px);
             z-index: 1000000;
         }
         .st-key-user_topbar [data-testid="stPopover"] { width: auto !important; }
         .st-key-user_topbar [data-testid="stPopover"] > div { width: auto !important; }
         .st-key-user_topbar button[data-testid="stPopoverButton"] {
-            background: rgba(0,229,160,0.12) !important;
-            border: 1px solid rgba(0,184,132,0.35) !important;
+            max-width: var(--nv-chip-max, 190px);
+            overflow: hidden !important;
+            /* Minimalista: sem preenchimento, só o contorno fino verde. O fundo
+               tingido de antes brigava com o traço verde do item ativo da navbar
+               — dois verdes sólidos lado a lado no mesmo cabeçalho. */
+            background: transparent !important;
+            border: 1px solid #00B884 !important;
             border-radius: 999px !important;
             padding: 4px 14px !important;
             font-size: 12.5px !important;
-            font-weight: 600 !important;
+            font-weight: 400 !important;
             color: #0D1B17 !important;
         }
+        /* Truncar o nome exige que a cadeia flex do botão possa encolher: por
+           padrão um item flex não fica menor que seu conteúdo (min-width:auto),
+           e o texto venceria o max-width acima. Seletores estruturais, não as
+           classes do Emotion (que são regeradas a cada build do Streamlit). */
+        .st-key-user_topbar button[data-testid="stPopoverButton"] > div,
+        .st-key-user_topbar button[data-testid="stPopoverButton"] > div > div:first-child,
+        .st-key-user_topbar button[data-testid="stPopoverButton"] span,
+        .st-key-user_topbar button[data-testid="stPopoverButton"] [data-testid="stMarkdownContainer"] {
+            min-width: 0 !important;
+        }
+        .st-key-user_topbar button[data-testid="stPopoverButton"] p {
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+        }
+        /* A seta do popover não encolhe: sem isto ela seria esmagada a 0px e o
+           chip perderia a única pista de que é clicável. */
+        .st-key-user_topbar button[data-testid="stPopoverButton"] > div > div:last-child {
+            flex-shrink: 0 !important;
+        }
         .st-key-user_topbar button[data-testid="stPopoverButton"]:hover {
-            background: rgba(0,229,160,0.22) !important;
-            border-color: #00B884 !important;
+            background: rgba(0,229,160,0.10) !important;
+            border-color: #00805C !important;
         }
         </style>
         """,
