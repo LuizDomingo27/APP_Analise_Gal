@@ -36,8 +36,12 @@ from src.data.historico_defeitos import (
 )
 from src.data.processor import DataProcessor
 from src.services.exporter import get_xlsx_bytes
+from src.ui.layout import _VAR_TH, _VAR_TH_L, _row_bg, _td, _wrap_table
 from src.ui.metrics import render_insights, render_metrics
-from src.ui.preview import _generate_defeitos_tabela_html
+from src.ui.preview import (
+    _generate_defeitos_tabela_html,
+    _generate_fornecedores_faixa_html,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +186,7 @@ def _render_filters(df: pd.DataFrame) -> pd.DataFrame:
     min_date = df[COLS["date"]].min().date()
     max_date = df[COLS["date"]].max().date()
 
-    col_of, col_dt, col_exp = st.columns([1, 1, 1])
+    col_of, col_dt, col_exp = st.columns([1, 1, 1.4])
     with col_of:
         oficina = st.selectbox(
             "🏭 Oficina (Fornecedor)",
@@ -214,7 +218,8 @@ def _render_filters(df: pd.DataFrame) -> pd.DataFrame:
 
     with col_exp:
         _render_export_bar(
-            filtered, oficina, date_range, sem_filtro=len(filtered) == len(df)
+            filtered, oficina, date_range,
+            sem_filtro=len(filtered) == len(df), full_df=df,
         )
 
     return filtered
@@ -232,8 +237,13 @@ def _filters_description(oficina: str, date_range) -> str:
     return f"{oficina}{periodo}"
 
 
+@st.cache_data(show_spinner=False)
 def _xlsx_href(filtered: pd.DataFrame) -> str:
-    """Data-URI do Excel agrupado por fornecedor. Propaga falhas de geração."""
+    """Data-URI do Excel agrupado por fornecedor. Propaga falhas de geração.
+
+    Cacheado por conteúdo do DataFrame: a montagem do workbook formatado é
+    custosa e rodava a cada rerun da página mesmo sem o usuário exportar.
+    """
     xlsx_b64 = base64.b64encode(get_xlsx_bytes(filtered)).decode()
     return (
         "data:application/vnd.openxmlformats-officedocument"
@@ -242,7 +252,8 @@ def _xlsx_href(filtered: pd.DataFrame) -> str:
 
 
 def _render_export_bar(
-    filtered: pd.DataFrame, oficina: str, date_range, sem_filtro: bool
+    filtered: pd.DataFrame, oficina: str, date_range, sem_filtro: bool,
+    full_df: pd.DataFrame | None = None,
 ) -> None:
     """
     Sem filtro (todos os registros): apenas Excel — o relatório PDF com todas as
@@ -334,7 +345,7 @@ def _render_export_bar(
     font-size: 12.5px; font-weight: 600; letter-spacing: 0.4px;
     white-space: nowrap; text-decoration: none;
     transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
-    line-height: 1; color: #0D1B17;
+    line-height: 1; color: #0D1B17; font-family: inherit;
   }}
   .abtn-print {{
     background: #F2F7F5;
@@ -367,12 +378,35 @@ def _render_export_bar(
   <a class="abtn abtn-save" href="{save_href}" download="historico_defeitos_fornecedor.xlsx">
     Salvar por Fornecedor
   </a>
+  <button class="abtn abtn-save" onclick="openRange()">Filtrar por Faixa</button>
 </div>
 {script_html}
+<script>
+  function openRange() {{
+    try {{
+      const btn = window.parent.document.querySelector('.st-key-hist_range_toggle button');
+      if (btn) {{ btn.click(); }}
+    }} catch (err) {{ console.error('openRange falhou:', err); }}
+  }}
+</script>
 </body>
 </html>""",
         height=44,
     )
+
+    # O botão "Filtrar por Faixa" fica DENTRO do iframe acima, na mesma linha do
+    # "Salvar por Fornecedor" e com o mesmo estilo. Como um botão no iframe não
+    # dispara rerun do Streamlit sozinho, ele "clica" (via JS) neste botão nativo
+    # OCULTO — que, ao retornar True no rerun, ABRE o popup (st.dialog) com o
+    # histórico COMPLETO. O Streamlit mantém o diálogo aberto nas interações
+    # seguintes e o fecha sozinho no "X"; não recarregamos a página (um reload
+    # reiniciaria a sessão e deslogaria o usuário).
+    st.markdown(
+        "<style>.st-key-hist_range_toggle{display:none;}</style>",
+        unsafe_allow_html=True,
+    )
+    if st.button("toggle_range", key="hist_range_toggle"):
+        _render_supplier_range_dialog(full_df if full_df is not None else filtered)
 
     if sem_filtro:
         st.caption(
@@ -430,6 +464,210 @@ def _render_charts_only(processor: DataProcessor) -> None:
         _chart_label("Top 12 — combinações Local × Defeito")
         _defect_legend()
         echart(builder.bar_key_combinations(processor.by_key(12)), key="hist_key_combos")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Popup: filtro de fornecedores por faixa
+# ══════════════════════════════════════════════════════════════════════════════
+
+#: Rótulo exibido → chave de métrica de DataProcessor.supplier_summary_in_range.
+_RANGE_METRICS = {
+    "Total de Remontes": "remonte",
+    "Total de Ordens":   "ordens",
+    "Total em Valor (R$)": "valor",
+}
+
+
+@st.dialog("🎯 Fornecedores por Faixa", width="large")
+def _render_supplier_range_dialog(df: pd.DataFrame) -> None:
+    """Popup (janela) para filtrar fornecedores por faixa de uma métrica.
+
+    O usuário escolhe a métrica (total de remontes, de ordens ou em valor) e o
+    intervalo [De, Até]. São listados — agrupados por fornecedor — todos os
+    fornecedores de TODO o histórico cujo total cai na faixa, com as colunas
+    Fornecedor · Total de Remontes · Total de Ordens · Total em Valor e um botão
+    de exportação em PDF.
+
+    Fronteira defensiva: qualquer falha degrada apenas o popup, com aviso
+    amigável — nunca derruba a página.
+    """
+    st.markdown(
+        f"<p style='font-size:12.5px;color:{COLORS['text_muted']};margin:0 0 12px;line-height:1.6'>"
+        "Escolha a métrica e o intervalo. São listados os fornecedores de "
+        "<strong>todo o histórico</strong> cujo total cai dentro da faixa, "
+        "agrupados por fornecedor.</p>",
+        unsafe_allow_html=True,
+    )
+
+    try:
+        processor = DataProcessor(df)
+        summary_all = processor.supplier_summary()
+    except Exception:  # noqa: BLE001 — fronteira defensiva local
+        logger.exception("Falha ao agregar fornecedores para o filtro por faixa")
+        st.warning(
+            "⚠️ Não foi possível carregar os fornecedores agora. "
+            "Tente novamente em instantes."
+        )
+        return
+
+    if summary_all.empty:
+        st.info("Nenhum fornecedor no histórico ainda.")
+        return
+
+    metric_label = st.selectbox(
+        "Filtrar por", list(_RANGE_METRICS), key="hist_range_metric"
+    )
+    metric = _RANGE_METRICS[metric_label]
+    metric_col = DataProcessor.SUPPLIER_SUMMARY_METRICS[metric]
+    is_valor = metric == "valor"
+
+    serie = summary_all[metric_col]
+    data_min, data_max = float(serie.min()), float(serie.max())
+
+    col_lo, col_hi = st.columns(2)
+    with col_lo:
+        if is_valor:
+            low = st.number_input(
+                "De (R$)", value=data_min, step=100.0, format="%.2f",
+                key=f"hist_range_low_{metric}",
+            )
+        else:
+            low = st.number_input(
+                "De", value=int(data_min), step=1,
+                key=f"hist_range_low_{metric}",
+            )
+    with col_hi:
+        if is_valor:
+            high = st.number_input(
+                "Até (R$)", value=data_max, step=100.0, format="%.2f",
+                key=f"hist_range_high_{metric}",
+            )
+        else:
+            high = st.number_input(
+                "Até", value=int(data_max), step=1,
+                key=f"hist_range_high_{metric}",
+            )
+
+    try:
+        result = processor.supplier_summary_in_range(metric, float(low), float(high))
+    except Exception:  # noqa: BLE001 — fronteira defensiva local
+        logger.exception("Falha ao filtrar fornecedores por faixa")
+        st.warning("⚠️ Não foi possível aplicar o filtro agora.")
+        return
+
+    _spacer(6)
+    if result.empty:
+        st.info("Nenhum fornecedor encontrado nesta faixa. Ajuste os limites acima.")
+        return
+
+    st.markdown(
+        f"<p style='font-size:12px;color:{COLORS['text_muted']};margin:0 0 6px'>"
+        f"✦ {len(result):,} fornecedor(es) na faixa selecionada.</p>",
+        unsafe_allow_html=True,
+    )
+    _render_supplier_summary_table(result)
+
+    _spacer(8)
+    _render_range_pdf_button(result, metric_label, float(low), float(high), is_valor)
+
+
+def _render_supplier_summary_table(summary: pd.DataFrame) -> None:
+    """Tabela agrupada por fornecedor no MESMO padrão visual das demais do app
+    (reutiliza _wrap_table / _td / _row_bg / _VAR_TH)."""
+    headers = [
+        (_VAR_TH_L + "width:34%;", "Fornecedor"),
+        (_VAR_TH + "width:16%;", "Total de Remontes"),
+        (_VAR_TH + "width:15%;", "Quantidade"),
+        (_VAR_TH + "width:15%;", "Total de Ordens"),
+        (_VAR_TH + "width:20%;", "Total em Valor"),
+    ]
+    head_html = "".join(f'<th style="{style}">✦ {name}</th>' for style, name in headers)
+
+    rows_html = ""
+    for i, (_, row) in enumerate(summary.iterrows()):
+        bg = _row_bg(i)
+        rows_html += "<tr>" + (
+            _td(f'<strong>{row["fornecedor"]}</strong>', bg, "left")
+            + _td(f'{int(row["total_remonte"]):,}', bg, "center")
+            + _td(f'{int(row["total_quantidade"]):,}', bg, "center")
+            + _td(f'{int(row["total_ordens"]):,}', bg, "center")
+            + _td(f'R$ {float(row["total_valor"]):,.2f}', bg, "center")
+        ) + "</tr>"
+
+    st.markdown(_wrap_table(head_html, rows_html, max_height="420px"), unsafe_allow_html=True)
+
+
+def _render_range_pdf_button(
+    summary: pd.DataFrame, metric_label: str, low: float, high: float, is_valor: bool
+) -> None:
+    """Botão que abre a prévia em PDF do resultado da faixa numa nova aba.
+
+    Reaproveita o mesmo mecanismo de prévia da barra de exportação (data-URI +
+    window.open). Fronteira defensiva: se a geração falhar, apenas informa —
+    a tabela na tela continua válida."""
+    try:
+        html_page = _generate_fornecedores_faixa_html(
+            summary, metric_label, low, high, is_valor
+        )
+    except Exception:  # noqa: BLE001 — fronteira defensiva local
+        logger.exception("Falha ao gerar o PDF do filtro por faixa")
+        st.caption("A exportação em PDF está indisponível no momento.")
+        return
+
+    html_b64 = base64.b64encode(html_page.encode("utf-8")).decode()
+    components.html(
+        f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+  .abtn {{
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 9px 16px; border-radius: 10px; cursor: pointer;
+    font-size: 12.5px; font-weight: 600; letter-spacing: 0.4px;
+    white-space: nowrap; text-decoration: none; line-height: 1;
+    color: #0D1B17; font-family: inherit;
+    background: rgba(0,229,160,0.22);
+    border: 1px solid rgba(0,229,160,0.55);
+    box-shadow: 0 0 14px rgba(0,229,160,0.18);
+    transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+  }}
+  .abtn:hover {{
+    background: rgba(0,229,160,0.35); border-color: #0D1B17;
+    box-shadow: 0 0 24px rgba(0,229,160,0.38); transform: translateY(-1px);
+  }}
+  .abtn:active {{ transform: translateY(0); }}
+</style>
+</head>
+<body>
+<button class="abtn" onclick="openPreview()">📄 Exportar / Imprimir PDF</button>
+<script>
+  const _HTML_B64 = "{html_b64}";
+  function openPreview() {{
+    try {{
+      const bytes = Uint8Array.from(atob(_HTML_B64), c => c.charCodeAt(0));
+      const html  = new TextDecoder("utf-8").decode(bytes);
+      const win   = window.open("", "_blank");
+      if (win) {{
+        win.document.open();
+        win.document.write(html);
+        win.document.close();
+      }} else {{
+        const blob = new Blob([html], {{ type: "text/html;charset=utf-8" }});
+        window.open(URL.createObjectURL(blob), "_blank");
+      }}
+    }} catch (err) {{
+      console.error("Erro ao abrir prévia:", err);
+      alert("Não foi possível abrir a prévia. Permita popups para este site.");
+    }}
+  }}
+</script>
+</body>
+</html>""",
+        height=48,
+    )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -501,7 +739,6 @@ def _render_supplier_edit_form() -> None:
 
         if n:
             st.success(f'✅ {n:,} registro(s) atualizado(s): "{old_value}" → "{new_value.strip()}".')
-            st.cache_data.clear()
             st.rerun()
         else:
             st.warning("Nenhum registro foi alterado.")

@@ -86,6 +86,7 @@ def load_historico() -> pd.DataFrame | None:
     return _cast_types(df)
 
 
+@st.cache_data
 def get_supplier_counts() -> pd.DataFrame:
     """
     Valores distintos de FORNECEDOR no histórico com a contagem de registros
@@ -94,6 +95,9 @@ def get_supplier_counts() -> pd.DataFrame:
     Colunas retornadas: `valor` (nome do fornecedor) e `qtd` (nº de registros).
     Alimenta o formulário de correção de nomes. Retorna DataFrame vazio se
     não houver dados.
+
+    Cacheado: invalidado explicitamente em append_historico/rename_supplier
+    (as únicas escritas que afetam a coluna FORNECEDOR desta tabela).
     """
     _ensure_schema()
     with get_connection() as conn:
@@ -176,6 +180,7 @@ def append_historico(uploaded_file) -> dict | None:
         return None
 
     load_historico.clear()
+    get_supplier_counts.clear()
 
     return {
         "added": int(len(df_to_add)),
@@ -211,4 +216,5 @@ def rename_supplier(old_value: str, new_value: str) -> int:
 
     if affected:
         load_historico.clear()
+        get_supplier_counts.clear()
     return affected

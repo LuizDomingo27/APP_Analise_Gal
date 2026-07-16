@@ -263,7 +263,6 @@ def _render_unify_tab() -> None:
             n = rename_value(column, old_value, new_value.strip())
         if n:
             st.success(f"✅ {n:,} registro(s) atualizado(s): \"{old_value}\" → \"{new_value.strip()}\".")
-            st.cache_data.clear()
             st.rerun()
         else:
             st.warning("Nenhum registro foi alterado.")
@@ -460,7 +459,6 @@ def _render_individual_edit_tab() -> None:
                     ok = update_record_fields(selected_rowid, updates)
                 if ok:
                     st.success("✅ Registro atualizado com sucesso.")
-                    st.cache_data.clear()
                     st.rerun()
                 else:
                     st.error("Não foi possível salvar a alteração.")

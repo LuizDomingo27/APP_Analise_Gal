@@ -41,8 +41,11 @@ _ALL_COLUMNS = list(COLS.values())
 
 
 def _sync_after_write() -> None:
-    """Invalida caches e re-sincroniza a df ativa em session_state."""
-    st.cache_data.clear()
+    """Invalida os caches afetados por uma escrita em registros_defeitos
+    (e só esses — evita derrubar caches de outras tabelas) e re-sincroniza
+    a df ativa em session_state."""
+    get_value_counts.clear()
+    get_distinct_suppliers.clear()
 
     from src.data.loader import load_data_from_disk
     load_data_from_disk.clear()
@@ -54,10 +57,13 @@ def _sync_after_write() -> None:
 
 # ── Unificação de valores (find & replace em massa) ───────────────────────────
 
+@st.cache_data
 def get_value_counts(column: str) -> pd.DataFrame:
     """
     Retorna os valores distintos de `column` em registros_defeitos com a
     quantidade de registros de cada um, ordenado alfabeticamente (case-insensitive).
+
+    Cacheado por coluna; invalidado em _sync_after_write após qualquer escrita.
     """
     if column not in _ALL_COLUMNS:
         raise ValueError(f"Coluna inválida: {column}")
@@ -199,8 +205,12 @@ def update_record_fields(rowid: int, updates: dict) -> bool:
     return affected > 0
 
 
+@st.cache_data
 def get_distinct_suppliers() -> list[str]:
-    """Lista de fornecedores distintos em registros_defeitos, ordenada."""
+    """Lista de fornecedores distintos em registros_defeitos, ordenada.
+
+    Cacheado; invalidado em _sync_after_write após qualquer escrita.
+    """
     create_tables()
     with get_connection() as conn:
         # CORREÇÃO: Selecionamos também o LOWER("FORNECEDOR") dando o alias de "ordem_lower".

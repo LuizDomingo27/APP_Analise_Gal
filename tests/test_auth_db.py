@@ -31,10 +31,12 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "_database_url", lambda: sqlite_url)
     db.get_engine.clear()
     auth_db.create_users_table.clear()
+    auth_db.list_users.clear()
     auth_db.create_users_table()
     yield db_path
     db.get_engine.clear()
     auth_db.create_users_table.clear()
+    auth_db.list_users.clear()
 
 
 # ── Schema: a tabela criada é "UserGal", com aspas preservando o case ─────────

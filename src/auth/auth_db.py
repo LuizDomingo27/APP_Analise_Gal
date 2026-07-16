@@ -117,8 +117,12 @@ def get_user(username: str) -> dict | None:
     return dict(zip(keys, row))
 
 
+@st.cache_data
 def list_users() -> list[dict]:
-    """Lista usuários (sem hashes) para exibição no painel de gestão."""
+    """Lista usuários (sem hashes) para exibição no painel de gestão.
+
+    Cacheado; invalidado explicitamente em create_user/delete_user.
+    """
     create_users_table()
     with get_connection() as conn:
         rows = conn.execute(
@@ -196,6 +200,7 @@ def create_user(
         )
         conn.commit()
 
+    list_users.clear()
     return True, (
         f"Usuário '{uname}' criado com sucesso"
         + (" como administrador." if effective_role == "admin" else ".")
@@ -306,4 +311,5 @@ def delete_user(username: str) -> tuple[bool, str]:
         )
         conn.commit()
 
+    list_users.clear()
     return True, f"Usuário '{user['username']}' removido."

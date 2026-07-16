@@ -32,13 +32,6 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(
-    page_title="Historico de Cobranças",
-    page_icon="🗃️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
 from src.config.settings import COLS, COLORS
 from src.data.cobranca_history import (
     HISTORY_LABELS,
@@ -56,11 +49,15 @@ from src.data.cobranca_history import (
 )
 from src.data.payment_history import load_payments, generate_payments_xlsx_bytes
 from src.data.devolucao_history import load_devolucoes, generate_devolucoes_xlsx_bytes
+from src.data.divida_dividida import (
+    load_dividas_divididas,
+    generate_divida_dividida_xlsx_bytes,
+)
 from src.ui.cobranca import render_cobranca_page
 import base64
 import streamlit.components.v1 as components
 from src.ui.preview import _generate_historico_html
-from src.auth.session import require_login, render_user_sidebar, is_admin
+from src.auth.session import require_login, is_admin
 from src.ui.error_boundary import page_guard
 
 # ── CSS global ────────────────────────────────────────────────────────────────
@@ -297,6 +294,71 @@ def _build_extrato_df(charge_groups: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+_MAX_GROUPS_DISPLAY = 200
+
+
+def _limit_recent_groups(
+    charge_groups: list[dict], limit: int = _MAX_GROUPS_DISPLAY
+) -> tuple[list[dict], int]:
+    """
+    Limita a lista de lançamentos exibida na tabela aos `limit` mais recentes
+    (por Data de Cobrança), para a tabela HTML não crescer sem limite conforme
+    o histórico acumula meses de dados. Não afeta o seletor "Ver Detalhes"
+    (que continua recebendo a lista completa) — só o que é renderizado.
+
+    Retorna (grupos_limitados, total_antes_do_corte).
+    """
+    total = len(charge_groups)
+    if total <= limit:
+        return charge_groups, total
+
+    def _sort_key(g: dict):
+        ts = pd.to_datetime(g.get("data_cobranca"), dayfirst=True, errors="coerce")
+        return pd.Timestamp.min if pd.isna(ts) else ts
+
+    ordenados = sorted(charge_groups, key=_sort_key, reverse=True)
+    return ordenados[:limit], total
+
+
+def _situacao_badge_pagamento(data_pagamento, data_vencimento) -> str:
+    """Badge de pontualidade (No prazo / Atraso) a partir das datas de uma cobrança."""
+    dias, atrasado = payment_punctuality(data_pagamento, data_vencimento)
+    if atrasado is None:
+        return '<span style="color:#9A6B1E">—</span>'
+    if atrasado:
+        return f'<span class="badge-status status-contestado">⚠️ Atraso de {dias}d</span>'
+    return '<span class="badge-status status-pago">✅ No prazo</span>'
+
+
+def _build_group_summary_df(charge_groups: list[dict], mode: str) -> pd.DataFrame:
+    """
+    Converte a lista de grupos (uma cobrança por COD_LANCAMENTO) num DataFrame de
+    extrato — uma linha por cobrança — para as abas Pagamentos, Devolução e Dividida.
+
+    mode:
+      - "pagamentos": inclui Data Pagamento e Situação (pontualidade do pagamento).
+      - "devolucao" / "dividida": sem status/pagamento (implícitos pela aba).
+    """
+    rows = []
+    for g in charge_groups:
+        row = {
+            "Código": g["cod"],
+            "Fornecedor": g["fornecedor"],
+            "CNPJ": g["cnpj"],
+            "Data Cobrança": g["data_cobranca"],
+            "Vencimento": g["data_vencimento"],
+        }
+        if mode == "pagamentos":
+            row["Data Pagamento"] = g["data_pagamento"]
+            row["Situação"] = _situacao_badge_pagamento(
+                g["data_pagamento"], g["data_vencimento"]
+            )
+        row["Itens"] = g["n_itens"]
+        row["Valor Total"] = f"R$ {g['valor_total']:,.2f}"
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def _render_print_button(html_content: str) -> None:
     """Botão que abre um HTML de impressão em nova aba (padrão de 'PDF' usado no app)."""
     html_b64 = base64.b64encode(html_content.encode("utf-8")).decode()
@@ -467,6 +529,126 @@ def _show_extrato_dialog(cod_lancamento: str, df_source: pd.DataFrame) -> None:
             f"Código: {cod_lancamento}",
         )
         _render_print_button(html_item)
+
+
+@st.dialog("🧾 Detalhes da Cobrança", width="large")
+def _show_group_detail_dialog(
+    cod_lancamento: str,
+    df_labeled: pd.DataFrame,
+    pdf_title: str,
+    pdf_badge: str,
+) -> None:
+    """
+    Popup com todos os itens de um COD_LANCAMENTO — usado pelas abas Pagamentos,
+    Devolução e Cobrança Dividida (equivalente ao _show_extrato_dialog do Histórico,
+    mas alimentado pelo DataFrame já carregado/filtrado da própria aba).
+    """
+    cod_label     = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
+    sup_label     = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
+    cnpj_label    = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
+    dte_label     = HISTORY_LABELS.get("DATA_COBRANCA",   "Data Cobrança")
+    venc_label    = HISTORY_LABELS.get("DATA_VENCIMENTO", "Data Vencimento")
+    pag_label     = HISTORY_LABELS.get("DATA_PAGAMENTO",  "Data Pagamento")
+    val_label     = HISTORY_LABELS.get(COLS["value_brl"], "Valor (R$)")
+    ord_label     = HISTORY_LABELS.get(COLS["order"],     "OM")
+    qty_label     = HISTORY_LABELS.get(COLS["quantity"],  "Qtd")
+    min_label     = HISTORY_LABELS.get(COLS["minutes"],   "Min. Gerados")
+    remonte_label = HISTORY_LABELS.get(COLS["defect"],    "Remonte")
+    rc_label      = HISTORY_LABELS.get(COLS["real_cut"],  "Real Cortado")
+    prod_label    = HISTORY_LABELS.get(COLS["date"],      "Data Produção")
+
+    if cod_label not in df_labeled.columns:
+        st.warning("Nenhum item encontrado para este código.")
+        return
+
+    df_item = df_labeled[df_labeled[cod_label] == cod_lancamento].copy()
+    if df_item.empty:
+        st.warning("Nenhum item encontrado para este código.")
+        return
+
+    primeira    = df_item.iloc[0]
+    valor_total = (
+        pd.to_numeric(df_item[val_label], errors="coerce").sum()
+        if val_label in df_item.columns else 0.0
+    )
+
+    # ── Cabeçalho (fornecedor / CNPJ / código / datas) ────────────────────────
+    pag_txt = str(primeira.get(pag_label, "")).strip()
+    linha_datas = (
+        f"Cobrança: {primeira.get(dte_label, '')} &nbsp;·&nbsp; "
+        f"Vencimento: {primeira.get(venc_label, '')}"
+    )
+    if pag_label in df_item.columns and pag_txt and pag_txt.lower() not in ("nan", "nat"):
+        linha_datas += f" &nbsp;·&nbsp; Pagamento: {pag_txt}"
+
+    st.markdown(
+        f"""
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;
+                    padding:12px 16px;margin-bottom:14px;border-radius:10px;
+                    background:#F2F7F5;border:1px solid rgba(0,229,160,0.25)">
+            <div>
+                <div style="font-size:15px;font-weight:700;color:#0D1B17">{primeira.get(sup_label, '')}</div>
+                <div style="font-size:12px;color:#4A5752">CNPJ: {primeira.get(cnpj_label, '')}</div>
+            </div>
+            <div style="text-align:right;font-size:12px;color:#4A5752">
+                <div>Código: <strong style="font-family:Consolas,monospace;color:#534AB7">{cod_lancamento}</strong></div>
+                <div>{linha_datas}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Tabela de itens (todos os registros da cobrança) ──────────────────────
+    item_cols = [c for c in (ord_label, prod_label, qty_label, remonte_label, rc_label, min_label, val_label)
+                 if c in df_item.columns]
+    df_display_item = df_item[item_cols].copy()
+    if val_label in df_display_item.columns:
+        df_display_item[val_label] = df_display_item[val_label].apply(
+            lambda v: f"R$ {float(v):,.2f}" if pd.notna(v) else ""
+        )
+    if min_label in df_display_item.columns:
+        df_display_item[min_label] = df_display_item[min_label].apply(
+            lambda v: f"{float(v):,.2f}" if pd.notna(v) else ""
+        )
+    if qty_label in df_display_item.columns:
+        df_display_item[qty_label] = df_display_item[qty_label].apply(
+            lambda v: f"{int(float(v)):,}" if pd.notna(v) else ""
+        )
+    if ord_label in df_display_item.columns:
+        df_display_item[ord_label] = df_display_item[ord_label].apply(
+            lambda v: f"{int(float(v))}" if pd.notna(v) else ""
+        )
+    if rc_label in df_display_item.columns:
+        df_display_item[rc_label] = df_display_item[rc_label].apply(
+            lambda v: f"{int(float(v)):,}" if pd.notna(v) else ""
+        )
+
+    _render_simple_table(df_display_item, left_cols=frozenset({remonte_label}), height=300)
+
+    st.markdown(
+        f"<div style='text-align:right;font-size:14px;font-weight:700;color:#0D1B17;margin:10px 0'>"
+        f"Total: R$ {valor_total:,.2f}</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Prévia / Imprimir PDF do lançamento ───────────────────────────────────
+    totals_item = dict(
+        n_records=len(df_item),
+        total_minutes=pd.to_numeric(df_item[min_label], errors="coerce").sum() if min_label in df_item.columns else 0.0,
+        total_value=float(valor_total) if pd.notna(valor_total) else 0.0,
+        total_pieces=int(pd.to_numeric(df_item[qty_label], errors="coerce").sum()) if qty_label in df_item.columns else 0,
+        n_orders=df_item[ord_label].nunique() if ord_label in df_item.columns else 0,
+        n_cobrancas=1,
+    )
+    html_item = _generate_historico_html(
+        df_item.drop(columns=["_orig_idx"], errors="ignore"),
+        totals_item,
+        f"Código: {cod_lancamento}",
+        titulo=pdf_title,
+        badge=pdf_badge,
+    )
+    _render_print_button(html_item)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -693,8 +875,14 @@ def _render_historico_tab() -> None:
     ]
 
     if charge_groups:
+        display_groups, total_groups = _limit_recent_groups(charge_groups)
+        if total_groups > len(display_groups):
+            st.caption(
+                f"Mostrando os {len(display_groups)} lançamentos mais recentes de "
+                f"{total_groups}. Use os filtros acima para refinar a busca."
+            )
         _render_simple_table(
-            _build_extrato_df(charge_groups),
+            _build_extrato_df(display_groups),
             left_cols=frozenset({"Fornecedor"}),
             height=440,
         )
@@ -945,15 +1133,17 @@ def _render_pagamentos_tab() -> None:
     df_view = df_pag[cols_avail].copy()
     df_view.rename(columns=HISTORY_LABELS, inplace=True)
 
-    cod_label  = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
-    venc_label = HISTORY_LABELS.get("DATA_VENCIMENTO", "Data Vencimento")
-    pag_label  = HISTORY_LABELS.get("DATA_PAGAMENTO",  "Data Pagamento")
-    sup_label  = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
-    cnpj_label = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
-    val_label  = HISTORY_LABELS.get(COLS["value_brl"], "Valor (R$)")
-    min_label  = HISTORY_LABELS.get(COLS["minutes"],   "Min. Gerados")
-    qty_label  = HISTORY_LABELS.get(COLS["quantity"],  "Qtd")
-    ord_label  = HISTORY_LABELS.get(COLS["order"],     "OM")
+    cod_label    = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
+    dte_label    = HISTORY_LABELS.get("DATA_COBRANCA",   "Data Cobrança")
+    venc_label   = HISTORY_LABELS.get("DATA_VENCIMENTO", "Data Vencimento")
+    pag_label    = HISTORY_LABELS.get("DATA_PAGAMENTO",  "Data Pagamento")
+    sup_label    = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
+    cnpj_label   = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
+    status_label = HISTORY_LABELS.get(COLS["status"],    "Status")
+    val_label    = HISTORY_LABELS.get(COLS["value_brl"], "Valor (R$)")
+    min_label    = HISTORY_LABELS.get(COLS["minutes"],   "Min. Gerados")
+    qty_label    = HISTORY_LABELS.get(COLS["quantity"],  "Qtd")
+    ord_label    = HISTORY_LABELS.get(COLS["order"],     "OM")
 
     for col in (val_label, min_label, qty_label):
         if col in df_view.columns:
@@ -1038,94 +1228,56 @@ def _render_pagamentos_tab() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Tabela customizada HTML/CSS ───────────────────────────────────────────
-    display_df = df_filtered.copy()
-
-    if val_label in display_df.columns:
-        display_df[val_label] = display_df[val_label].apply(lambda v: f"R$ {float(v):,.2f}" if pd.notna(v) else "")
-    if min_label in display_df.columns:
-        display_df[min_label] = display_df[min_label].apply(lambda v: f"{float(v):,.2f}" if pd.notna(v) else "")
-    if qty_label in display_df.columns:
-        display_df[qty_label] = display_df[qty_label].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
-    if ord_label in display_df.columns:
-        display_df[ord_label] = display_df[ord_label].apply(lambda v: f"{int(float(v))}" if pd.notna(v) else "")
-    if "Real Cortado" in display_df.columns:
-        display_df["Real Cortado"] = display_df["Real Cortado"].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
-
-    if situ_label in display_df.columns:
-        def _situ_badge(s):
-            if s == "No prazo":
-                return '<span class="badge-status status-pago">✅ No prazo</span>'
-            if isinstance(s, str) and s.startswith("Atraso"):
-                return f'<span class="badge-status status-contestado">⚠️ {s}</span>'
-            return '<span style="color:#9A6B1E">—</span>'
-        display_df[situ_label] = display_df[situ_label].apply(_situ_badge)
-
-    headers = list(display_df.columns)
-
-    TH = (
-        "padding:11px 14px;text-align:center;color:#FFFFFF;font-weight:600;"
-        "font-size:10px;text-transform:uppercase;letter-spacing:0.9px;"
-        "background:#00805C;border-bottom:2px solid #00B884;"
-        "white-space:nowrap;position:sticky;top:0;z-index:1;"
+    # ── Tabela de Extrato (uma linha por cobrança) ────────────────────────────
+    # Cada COD_LANCAMENTO vira uma única linha; os itens completos ficam no
+    # popup "Ver Detalhes" abaixo (mesmo padrão da aba Histórico de Cobranças).
+    charge_groups = group_charges(
+        df_filtered, cod_label, sup_label, cnpj_label, dte_label,
+        venc_label, pag_label, status_label, val_label,
     )
-    TH_L = TH + "text-align:left;"
-
-    head_html = "".join(
-        f'<th style="{TH_L if h in ("Fornecedor", "Remonte") else TH}">✦ {h}</th>'
-        for h in headers
-    )
-
-    def _make_cell(h, val, row_bg):
-        is_left = h in ("Fornecedor", "Remonte")
-        align = "text-align:left;" if is_left else "text-align:center;"
-        base_td = (
-            f"padding:9px 14px;font-size:12.5px;color:#0D1B17;"
-            f"border-bottom:1px solid rgba(0,229,160,0.12);"
-            f"{align}{row_bg}"
+    charge_opts = [
+        (
+            f"{g['fornecedor']} | Código: {g['cod']} | "
+            f"R$ {g['valor_total']:,.2f} | {g['n_itens']} item(ns) | {g['data_cobranca']}",
+            g["cod"],
         )
-        return f'<td style="{base_td}">{val}</td>'
+        for g in charge_groups
+    ]
 
-    rows_html = "".join(
-        f"<tr>" + "".join(
-            _make_cell(h, row[h], "background:#FFFFFF;" if i % 2 == 1 else "background:#F2F7F5;")
-            for h in headers
-        ) + "</tr>"
-        for i, (_, row) in enumerate(display_df.iterrows())
-    )
+    if charge_groups:
+        display_groups, total_groups = _limit_recent_groups(charge_groups)
+        if total_groups > len(display_groups):
+            st.caption(
+                f"Mostrando os {len(display_groups)} lançamentos mais recentes de "
+                f"{total_groups}. Use a pesquisa acima para refinar."
+            )
+        _render_simple_table(
+            _build_group_summary_df(display_groups, "pagamentos"),
+            left_cols=frozenset({"Fornecedor"}),
+            height=440,
+        )
+    else:
+        st.info("Nenhum pagamento encontrado para a pesquisa atual.")
 
-    table_html = f"""
-    <style>
-      .nv-pag-table-wrap {{ scrollbar-width: thin; }}
-      .nv-pag-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
-      .nv-pag-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
-      .nv-pag-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
-      .nv-pag-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
-      .nv-pag-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
-      .badge-status {{
-        padding: 3px 8px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        display: inline-block;
-      }}
-      .status-pago {{ background: #00E5A0 !important; color: #FFFFFF !important; }}
-      .status-contestado {{ background: #D85A30 !important; color: #FFFFFF !important; }}
-    </style>
-    <div class="nv-pag-table-wrap" style="
-        max-height:480px; overflow:auto; border-radius:12px;
-        border:1px solid rgba(0,229,160,0.32);
-        border-top:2px solid #00B884;
-        background:#F2F7F5;
-        box-shadow:0 0 22px rgba(0,229,160,0.10);
-    ">
-      <table style="width:100%;border-collapse:collapse;min-width:1100px;">
-        <thead><tr>{head_html}</tr></thead>
-        <tbody>{rows_html}</tbody>
-      </table>
-    </div>
-    """
-    st.markdown(table_html, unsafe_allow_html=True)
+    # ── Buscar + abrir extrato específico em popup ────────────────────────────
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    col_sel, col_view = st.columns([3, 1])
+    if charge_opts:
+        selected_detail = col_sel.selectbox(
+            "Ver detalhes do pagamento",
+            options=charge_opts,
+            format_func=lambda x: x[0],
+            key="pag_select_charge_detail",
+        )
+        with col_view:
+            st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
+            if st.button("👁️  Ver Detalhes", use_container_width=True, key="pag_btn_view_detail"):
+                _show_group_detail_dialog(
+                    selected_detail[1], df_filtered,
+                    "✅ Pagamentos Concluídos", "pagamentos_concluidos",
+                )
+    else:
+        col_sel.caption("Nenhum pagamento disponível para a pesquisa atual.")
 
     # ── Botão de exportar Excel executivo ─────────────────────────────────────
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
@@ -1191,13 +1343,17 @@ def _render_devolucao_tab() -> None:
     df_view = df_dev[cols_avail].copy()
     df_view.rename(columns=HISTORY_LABELS, inplace=True)
 
-    cod_label  = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
-    sup_label  = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
-    cnpj_label = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
-    val_label  = HISTORY_LABELS.get(COLS["value_brl"], "Valor (R$)")
-    min_label  = HISTORY_LABELS.get(COLS["minutes"],   "Min. Gerados")
-    qty_label  = HISTORY_LABELS.get(COLS["quantity"],  "Qtd")
-    ord_label  = HISTORY_LABELS.get(COLS["order"],     "OM")
+    cod_label    = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
+    dte_label    = HISTORY_LABELS.get("DATA_COBRANCA",   "Data Cobrança")
+    venc_label   = HISTORY_LABELS.get("DATA_VENCIMENTO", "Data Vencimento")
+    pag_label    = HISTORY_LABELS.get("DATA_PAGAMENTO",  "Data Pagamento")
+    sup_label    = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
+    cnpj_label   = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
+    status_label = HISTORY_LABELS.get(COLS["status"],    "Status")
+    val_label    = HISTORY_LABELS.get(COLS["value_brl"], "Valor (R$)")
+    min_label    = HISTORY_LABELS.get(COLS["minutes"],   "Min. Gerados")
+    qty_label    = HISTORY_LABELS.get(COLS["quantity"],  "Qtd")
+    ord_label    = HISTORY_LABELS.get(COLS["order"],     "OM")
 
     for col in (val_label, min_label, qty_label):
         if col in df_view.columns:
@@ -1265,24 +1421,56 @@ def _render_devolucao_tab() -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Tabela (reaproveita o mesmo componente HTML/CSS da aba Histórico) ────
-    display_df = df_filtered.copy()
+    # ── Tabela de Extrato (uma linha por cobrança) ────────────────────────────
+    # Uma linha por COD_LANCAMENTO; os itens completos ficam no popup "Ver
+    # Detalhes" abaixo (mesmo padrão da aba Histórico de Cobranças).
+    charge_groups = group_charges(
+        df_filtered, cod_label, sup_label, cnpj_label, dte_label,
+        venc_label, pag_label, status_label, val_label,
+    )
+    charge_opts = [
+        (
+            f"{g['fornecedor']} | Código: {g['cod']} | "
+            f"R$ {g['valor_total']:,.2f} | {g['n_itens']} item(ns) | {g['data_cobranca']}",
+            g["cod"],
+        )
+        for g in charge_groups
+    ]
 
-    if val_label in display_df.columns:
-        display_df[val_label] = display_df[val_label].apply(lambda v: f"R$ {float(v):,.2f}" if pd.notna(v) else "")
-    if min_label in display_df.columns:
-        display_df[min_label] = display_df[min_label].apply(lambda v: f"{float(v):,.2f}" if pd.notna(v) else "")
-    if qty_label in display_df.columns:
-        display_df[qty_label] = display_df[qty_label].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
-    if ord_label in display_df.columns:
-        display_df[ord_label] = display_df[ord_label].apply(lambda v: f"{int(float(v))}" if pd.notna(v) else "")
-    if "Real Cortado" in display_df.columns:
-        display_df["Real Cortado"] = display_df["Real Cortado"].apply(lambda v: f"{int(float(v)):,}" if pd.notna(v) else "")
-
-    if display_df.empty:
-        st.info("Nenhuma devolução encontrada para a pesquisa atual.")
+    if charge_groups:
+        display_groups, total_groups = _limit_recent_groups(charge_groups)
+        if total_groups > len(display_groups):
+            st.caption(
+                f"Mostrando os {len(display_groups)} lançamentos mais recentes de "
+                f"{total_groups}. Use a pesquisa acima para refinar."
+            )
+        _render_simple_table(
+            _build_group_summary_df(display_groups, "devolucao"),
+            left_cols=frozenset({"Fornecedor"}),
+            height=440,
+        )
     else:
-        _render_simple_table(display_df, left_cols=frozenset({sup_label, "Remonte"}), height=440)
+        st.info("Nenhuma devolução encontrada para a pesquisa atual.")
+
+    # ── Buscar + abrir extrato específico em popup ────────────────────────────
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    col_sel, col_view = st.columns([3, 1])
+    if charge_opts:
+        selected_detail = col_sel.selectbox(
+            "Ver detalhes da devolução",
+            options=charge_opts,
+            format_func=lambda x: x[0],
+            key="dev_select_charge_detail",
+        )
+        with col_view:
+            st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
+            if st.button("👁️  Ver Detalhes", use_container_width=True, key="dev_btn_view_detail"):
+                _show_group_detail_dialog(
+                    selected_detail[1], df_filtered,
+                    "🔄 Devolução de Peças", "devolucoes",
+                )
+    else:
+        col_sel.caption("Nenhuma devolução disponível para a pesquisa atual.")
 
     # ── Botões de exportação (Excel + Prévia/Imprimir PDF) ────────────────────
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
@@ -1328,13 +1516,228 @@ def _render_devolucao_tab() -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Aba: Cobrança Dividida (parte absorvida pela empresa)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Mesma estrutura de colunas da aba Devolução (status implícito pela aba: "Dividida").
+_DIV_ORDERED_COLS = _PAG_ORDERED_COLS
+
+
+def _render_divida_dividida_tab() -> None:
+    # ── Carregar cobranças divididas ──────────────────────────────────────────
+    df_div = load_dividas_divididas()
+
+    if df_div is None or df_div.empty:
+        st.markdown(
+            f"""
+            <div style="display:flex;flex-direction:column;align-items:center;
+                        justify-content:center;min-height:50vh;text-align:center;gap:14px">
+                <div style="font-size:52px;opacity:0.18">➗</div>
+                <p style="font-size:20px;font-weight:600;
+                          color:{COLORS['text_primary']};margin:0">
+                    Nenhuma cobrança dividida ainda
+                </p>
+                <p style="font-size:13px;color:{COLORS['text_subtle']};
+                          margin:0;max-width:420px;line-height:1.7">
+                    Ao lançar uma cobrança com a opção
+                    <strong style="color:{COLORS['text_primary']}">Dividir esta cobrança</strong>
+                    marcada na aba
+                    <strong style="color:{COLORS['text_primary']}">Cobrança de Fornecedores</strong>,
+                    a parte absorvida pela empresa aparecerá aqui (a parte do fornecedor
+                    vai para o <strong style="color:{COLORS['text_primary']}">Histórico de Cobranças</strong>).
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    df_div = df_div.reset_index(drop=True)
+
+    # ── Preparar colunas visíveis ─────────────────────────────────────────────
+    cols_avail = [c for c in _DIV_ORDERED_COLS if c in df_div.columns]
+    df_view = df_div[cols_avail].copy()
+    df_view.rename(columns=HISTORY_LABELS, inplace=True)
+
+    cod_label    = HISTORY_LABELS.get("COD_LANCAMENTO",  "Código")
+    dte_label    = HISTORY_LABELS.get("DATA_COBRANCA",   "Data Cobrança")
+    venc_label   = HISTORY_LABELS.get("DATA_VENCIMENTO", "Data Vencimento")
+    pag_label    = HISTORY_LABELS.get("DATA_PAGAMENTO",  "Data Pagamento")
+    sup_label    = HISTORY_LABELS.get(COLS["supplier"],  "Fornecedor")
+    cnpj_label   = HISTORY_LABELS.get("CNPJ_FORNECEDOR", "CNPJ")
+    status_label = HISTORY_LABELS.get(COLS["status"],    "Status")
+    val_label    = HISTORY_LABELS.get(COLS["value_brl"], "Valor (R$)")
+    min_label    = HISTORY_LABELS.get(COLS["minutes"],   "Min. Gerados")
+    qty_label    = HISTORY_LABELS.get(COLS["quantity"],  "Qtd")
+    ord_label    = HISTORY_LABELS.get(COLS["order"],     "OM")
+
+    for col in (val_label, min_label, qty_label):
+        if col in df_view.columns:
+            df_view[col] = pd.to_numeric(df_view[col], errors="coerce")
+
+    # ── Pesquisa por Fornecedor ou CNPJ ────────────────────────────────────────
+    opcoes_busca = ["Todos os Fornecedores"]
+    if sup_label in df_view.columns and cnpj_label in df_view.columns:
+        pares = (
+            df_view[[sup_label, cnpj_label]]
+            .drop_duplicates()
+            .sort_values(sup_label)
+        )
+        opcoes_busca += [f"{r[sup_label]} — {r[cnpj_label]}" for _, r in pares.iterrows()]
+
+    col_busca, col_clear = st.columns([3, 1])
+    with col_busca:
+        busca_sel = st.selectbox(
+            "Pesquisar por Fornecedor ou CNPJ",
+            options=opcoes_busca,
+            key="div_busca_fornecedor",
+            help="Selecione um fornecedor (ou seu CNPJ) para filtrar as cobranças divididas.",
+        )
+    with col_clear:
+        st.markdown("<div style='height:1.6rem'></div>", unsafe_allow_html=True)
+        if st.button("↺ Limpar Pesquisa", key="div_clear", use_container_width=True):
+            st.session_state.pop("div_busca_fornecedor", None)
+            st.rerun()
+
+    df_filtered = df_view.copy()
+    if busca_sel != "Todos os Fornecedores":
+        fornecedor_sel = busca_sel.split(" — ")[0]
+        df_filtered = df_filtered[df_filtered[sup_label] == fornecedor_sel]
+
+    # ── KPIs (refletem a pesquisa aplicada) ──────────────────────────────────
+    total_value    = df_filtered[val_label].sum() if val_label in df_filtered.columns else 0.0
+    total_minutes  = df_filtered[min_label].sum() if min_label in df_filtered.columns else 0.0
+    total_pieces   = int(df_filtered[qty_label].sum()) if qty_label in df_filtered.columns else 0
+    n_lancamentos  = df_filtered[cod_label].nunique() if cod_label in df_filtered.columns else 0
+    n_fornecedores = df_filtered[sup_label].nunique() if sup_label in df_filtered.columns else 0
+    n_orders       = df_filtered[ord_label].nunique() if ord_label in df_filtered.columns else 0
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    _metric_kpi_card(c1, "💰", "VALOR ABSORVIDO",         f"R$ {total_value:,.2f}", "#0F86A3")
+    _metric_kpi_card(c2, "🧾", "LANÇAMENTOS DIVIDIDOS",   str(n_lancamentos),       "#534AB7")
+    _metric_kpi_card(c3, "🏢", "FORNECEDORES",            str(n_fornecedores),      "#00B884")
+    _metric_kpi_card(c4, "🧵", "PEÇAS (PARTE EMPRESA)",   f"{total_pieces:,}",      "#D8932E")
+    _metric_kpi_card(c5, "📦", "ORDENS ÚNICAS (OM)",      str(n_orders),            "#EF9F27")
+
+    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+
+    # Badge de pesquisa ativa
+    st.markdown(
+        f"""
+        <div style="
+            font-size:11px; color:{COLORS['text_subtle']};
+            background:rgba(0,229,160,0.08);
+            border:1px solid rgba(0,229,160,0.18);
+            border-radius:6px; padding:6px 14px; margin-bottom:12px;
+            display:inline-block;
+        ">
+            🔎 {busca_sel} &nbsp;·&nbsp; {len(df_filtered)} item(ns)
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Tabela de Extrato (uma linha por cobrança) ────────────────────────────
+    # Uma linha por COD_LANCAMENTO; os itens completos ficam no popup "Ver
+    # Detalhes" abaixo (mesmo padrão da aba Histórico de Cobranças).
+    charge_groups = group_charges(
+        df_filtered, cod_label, sup_label, cnpj_label, dte_label,
+        venc_label, pag_label, status_label, val_label,
+    )
+    charge_opts = [
+        (
+            f"{g['fornecedor']} | Código: {g['cod']} | "
+            f"R$ {g['valor_total']:,.2f} | {g['n_itens']} item(ns) | {g['data_cobranca']}",
+            g["cod"],
+        )
+        for g in charge_groups
+    ]
+
+    if charge_groups:
+        display_groups, total_groups = _limit_recent_groups(charge_groups)
+        if total_groups > len(display_groups):
+            st.caption(
+                f"Mostrando os {len(display_groups)} lançamentos mais recentes de "
+                f"{total_groups}. Use a pesquisa acima para refinar."
+            )
+        _render_simple_table(
+            _build_group_summary_df(display_groups, "dividida"),
+            left_cols=frozenset({"Fornecedor"}),
+            height=440,
+        )
+    else:
+        st.info("Nenhuma cobrança dividida encontrada para a pesquisa atual.")
+
+    # ── Buscar + abrir extrato específico em popup ────────────────────────────
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    col_sel, col_view = st.columns([3, 1])
+    if charge_opts:
+        selected_detail = col_sel.selectbox(
+            "Ver detalhes da cobrança dividida",
+            options=charge_opts,
+            format_func=lambda x: x[0],
+            key="div_select_charge_detail",
+        )
+        with col_view:
+            st.markdown("<div style='height:26px'></div>", unsafe_allow_html=True)
+            if st.button("👁️  Ver Detalhes", use_container_width=True, key="div_btn_view_detail"):
+                _show_group_detail_dialog(
+                    selected_detail[1], df_filtered,
+                    "➗ Cobrança Dividida — Parte da Empresa", "tb_divida_dividida",
+                )
+    else:
+        col_sel.caption("Nenhuma cobrança dividida disponível para a pesquisa atual.")
+
+    # ── Botões de exportação (Excel + Prévia/Imprimir PDF) ────────────────────
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    btn_dl, btn_pdf, _sp = st.columns([1, 1, 2])
+
+    with btn_dl:
+        _xlsx_bytes = generate_divida_dividida_xlsx_bytes() if df_div is not None and not df_div.empty else None
+        if _xlsx_bytes:
+            st.download_button(
+                label="📊  Baixar Excel Executivo",
+                data=_xlsx_bytes,
+                file_name=f"cobrancas_divididas_{date.today().isoformat()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_divididas_excel",
+                use_container_width=True,
+                help="Baixa o relatório executivo completo (todas as cobranças divididas, "
+                     "independente da pesquisa acima).",
+            )
+        else:
+            st.button("📊  Baixar Excel Executivo", disabled=True, use_container_width=True)
+
+    with btn_pdf:
+        if len(df_filtered) > 0:
+            totals_div = dict(
+                n_records=len(df_filtered),
+                total_minutes=total_minutes,
+                total_value=total_value,
+                total_pieces=total_pieces,
+                n_orders=n_orders,
+                n_cobrancas=n_lancamentos,
+            )
+            html_div = _generate_historico_html(
+                df_filtered, totals_div, f"Pesquisa: {busca_sel}",
+                titulo="➗ Cobrança Dividida — Parte da Empresa", badge="tb_divida_dividida",
+            )
+            _render_print_button(html_div)
+        else:
+            st.button(
+                "🖨️  Prévia / Imprimir PDF", disabled=True,
+                use_container_width=True,
+                help="Nenhum registro para exportar.",
+            )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════════════════════════════
 
 @page_guard
 def main() -> None:
     require_login()
-    render_user_sidebar()
 
     # ── Migra cobranças já pagas (lançadas antes da página Pagamentos
     # Concluídos existir) para pagamentos_concluidos. Idempotente — não faz
@@ -1362,11 +1765,12 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    tab_hist, tab_cobranca, tab_pag, tab_dev = st.tabs([
+    tab_hist, tab_cobranca, tab_pag, tab_dev, tab_div = st.tabs([
         "🗃️ Histórico de Cobranças",
         "💰 Cobrança de Fornecedores",
         "✅ Pagamentos Concluídos",
         "🔄 Devolução",
+        "➗ Cobrança Dividida",
     ])
 
     with tab_hist:
@@ -1381,18 +1785,8 @@ def main() -> None:
     with tab_dev:
         _render_devolucao_tab()
 
-    # ── Status sidebar (comum às 4 abas) ──────────────────────────────────────
-    st.sidebar.markdown(
-        '<hr style="border-color:rgba(0,0,0,0.06);margin:16px 0">',
-        unsafe_allow_html=True,
-    )
-   
-   # st.sidebar.markdown(
-   #     '<div style="font-size:10.5px;color:#00E5A0;padding:6px 8px;'
-   #     'border-radius:6px;background:rgba(0,229,160,0.06);'
-   #     'border:1px solid #00E5A033;">✓ Banco Postgres (Supabase) conectado</div>',
-   #     unsafe_allow_html=True,
-   # )
+    with tab_div:
+        _render_divida_dividida_tab()
 
 
 main()
