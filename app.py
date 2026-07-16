@@ -43,14 +43,20 @@ st.markdown(
     }
 
     /* ── Navbar (st.navigation position="top") centralizada ── */
-    /* A linha da navbar é o container flex `oke` (div.e1lpckdq13), que já tem
-       width:100%; basta centralizar seus itens. Alvo primário: a classe estável
-       do Streamlit 1.58. Reforço estrutural: o único elemento cujo NETO é um
-       stTopNavLinkContainer é essa mesma linha (os links ficam em wrappers
-       intermediários), então este seletor casa só com ela — nunca com cada link. */
-    [data-testid="stHeader"] .e1lpckdq13,
-    [data-testid="stHeader"] :has(> * > [data-testid="stTopNavLinkContainer"]) {
+    /* Não depender da classe hash do Emotion (ex.: .e1lpckdq13): ela é regerada
+       a cada build do Streamlit, então o seletor morre no deploy se a versão do
+       Cloud diferir da local. Aqui casamos qualquer wrapper dos links, em
+       qualquer profundidade dentro do header. O combinador descendente impede
+       que o próprio header case (o que deslocaria a toolbar); em wrappers de
+       link único, centralizar não tem efeito visual. */
+    [data-testid="stHeader"] :has([data-testid="stTopNavLinkContainer"]) {
         justify-content: center !important;
+    }
+    /* O gap fica restrito à linha (rc-overflow, classe estável da lib de
+       overflow — não é hash do Emotion). Sem esse escopo o gap vazaria para a
+       stToolbar, que é flex e também contém os links. Se a lib mudar, só o
+       espaçamento se perde: a centralização acima continua valendo. */
+    [data-testid="stHeader"] .rc-overflow:has([data-testid="stTopNavLinkContainer"]) {
         gap: 4px !important;
     }
 
