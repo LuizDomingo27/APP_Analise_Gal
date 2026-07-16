@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 import src.data.cobranca_history as ch
 import src.data.database as db
+from src.config.settings import COLS
 
 
 # ── status_badge_html ──────────────────────────────────────────────────────────
@@ -235,6 +236,212 @@ def test_update_lancamento_status_rejects_status_outside_status_options(temp_db)
                  "Pendente", "100", 10, "PONTO ESTOURADO", 10, 5.0, 50.0)
     # "Contestado" não é mais uma opção válida de status.
     assert ch.update_lancamento_status("PAG-DEV0002", "Contestado") is False
+
+
+# ── update_lancamento_status: fluxo de Pago e reivindicação ────────────────────
+
+def test_update_lancamento_status_pago_moves_row_with_payment_date(temp_db):
+    _insert_item(temp_db, "PAG-PAY0001", "11.111.111/0001-11", "Fornecedor A",
+                 "Pendente", "100", 10, "PONTO ESTOURADO", 10, 5.0, 50.0)
+
+    assert ch.update_lancamento_status(
+        "PAG-PAY0001", "Pago", data_pagamento=date(2026, 6, 12)
+    ) is True
+
+    with db.get_connection() as conn:
+        remaining = conn.execute(
+            text('SELECT COUNT(*) FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
+            {"cod": "PAG-PAY0001"},
+        ).scalar()
+        moved = conn.execute(
+            text(
+                'SELECT "STATUS_COBRANCA", "DATA_PAGAMENTO", "VALOR DO PROCESSO BRL" '
+                'FROM pagamentos_concluidos WHERE "COD_LANCAMENTO" = :cod'
+            ),
+            {"cod": "PAG-PAY0001"},
+        ).fetchone()
+
+    assert remaining == 0
+    assert moved == ("Pago", "12/06/2026", 50.0)
+
+
+def test_update_lancamento_status_second_call_returns_false_without_duplicating(temp_db):
+    """
+    Reivindicação: dois admins concluindo o mesmo lançamento. O segundo não pode
+    gravar um pagamento duplicado — só o primeiro reivindica as linhas.
+    """
+    _insert_item(temp_db, "PAG-DUP0001", "11.111.111/0001-11", "Fornecedor A",
+                 "Pendente", "100", 10, "PONTO ESTOURADO", 10, 5.0, 50.0)
+
+    assert ch.update_lancamento_status(
+        "PAG-DUP0001", "Pago", data_pagamento=date(2026, 6, 12)
+    ) is True
+    assert ch.update_lancamento_status(
+        "PAG-DUP0001", "Pago", data_pagamento=date(2026, 6, 12)
+    ) is False
+
+    with db.get_connection() as conn:
+        pagos = conn.execute(
+            text('SELECT COUNT(*) FROM pagamentos_concluidos WHERE "COD_LANCAMENTO" = :cod'),
+            {"cod": "PAG-DUP0001"},
+        ).scalar()
+    assert pagos == 1
+
+
+def test_update_lancamento_status_propagates_database_error(temp_db, monkeypatch):
+    """
+    Uma falha de banco não pode virar `False`: isso a tornaria indistinguível de
+    "código não encontrado", e o admin repetiria a ação sem saber que o Supabase
+    é que estava fora. Deve propagar para a fronteira @page_guard da página.
+    """
+    _insert_item(temp_db, "PAG-ERR0001", "11.111.111/0001-11", "Fornecedor A",
+                 "Pendente", "100", 10, "PONTO ESTOURADO", 10, 5.0, 50.0)
+
+    def _boom():
+        raise db.DatabaseUnavailableError("banco indisponível")
+
+    monkeypatch.setattr(ch, "get_connection", _boom)
+
+    with pytest.raises(db.DatabaseUnavailableError):
+        ch.update_lancamento_status("PAG-ERR0001", "Pago", data_pagamento=date(2026, 6, 12))
+
+
+# ── launch_charge: lançamento atômico com reivindicação ────────────────────────
+
+_REGISTRO_SQL = (
+    "INSERT INTO registros_defeitos "
+    '("ORDEM MESTRE", "DATA DE PRODUÇÃO ACABAMENTO", "FORNECEDOR", "QUANTIDADE", '
+    '"REMONTE", "REAL CORTADO", "MINUTOS GERADOS", "VALOR DO PROCESSO BRL", '
+    '"STATUS_COBRANCA") '
+    "VALUES (:om, :dp, :sup, :qtd, :rem, :rc, :mins, :val, 'Pendente')"
+)
+
+
+def _insert_registro(supplier, data_producao="2026-07-10"):
+    with db.get_connection() as conn:
+        conn.execute(
+            text(_REGISTRO_SQL),
+            {"om": "OM-1", "dp": data_producao, "sup": supplier, "qtd": 2,
+             "rem": "PONTO ESTOURADO", "rc": "10", "mins": 5.0, "val": 100.0},
+        )
+        conn.commit()
+
+
+def _charge_df(supplier, valor=100.0, qtd=2):
+    return pd.DataFrame([{
+        COLS["order"]:     "OM-1",
+        COLS["date"]:      pd.Timestamp("2026-07-10"),
+        COLS["supplier"]:  supplier,
+        COLS["quantity"]:  qtd,
+        COLS["defect"]:    "PONTO ESTOURADO",
+        COLS["real_cut"]:  "10",
+        COLS["minutes"]:   5.0,
+        COLS["value_brl"]: valor,
+    }])
+
+
+def _launch(supplier, **kwargs):
+    return ch.launch_charge(
+        supplier=supplier,
+        cnpj="00.000.000/0001-00",
+        df_records=_charge_df(supplier),
+        data_cobranca=date(2026, 7, 16),
+        data_vencimento=date(2026, 7, 26),
+        reference_date=date(2026, 7, 10),
+        reference_date_end=date(2026, 7, 10),
+        **kwargs,
+    )
+
+
+def test_launch_charge_claims_records_and_writes_charge(temp_db):
+    _insert_registro("OFICINA X")
+
+    cod = _launch("OFICINA X")
+
+    with db.get_connection() as conn:
+        restantes = conn.execute(
+            text('SELECT COUNT(*) FROM registros_defeitos WHERE "FORNECEDOR" = :s'),
+            {"s": "OFICINA X"},
+        ).scalar()
+        cobrados = conn.execute(
+            text('SELECT COUNT(*) FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :c'),
+            {"c": cod},
+        ).scalar()
+
+    # Os registros saíram da base ativa e a cobrança ficou gravada — na mesma transação.
+    assert restantes == 0
+    assert cobrados == 1
+
+
+def test_launch_charge_second_launch_raises_and_writes_nothing(temp_db):
+    """
+    Regressão da cobrança duplicada: dois admins com a página aberta lançam a
+    mesma cobrança. O segundo não encontra registros a reivindicar e deve falhar
+    sem gravar — senão o fornecedor receberia duas cobranças do mesmo período.
+    """
+    _insert_registro("OFICINA Y")
+    _launch("OFICINA Y")
+
+    with pytest.raises(ch.ChargeAlreadyLaunchedError):
+        _launch("OFICINA Y")
+
+    with db.get_connection() as conn:
+        lancamentos = conn.execute(
+            text(
+                'SELECT COUNT(DISTINCT "COD_LANCAMENTO") FROM historico_cobrancas '
+                'WHERE "FORNECEDOR" = :s'
+            ),
+            {"s": "OFICINA Y"},
+        ).scalar()
+    assert lancamentos == 1
+
+
+def test_launch_charge_outside_reference_period_does_not_claim(temp_db):
+    # Registro de outra data não pode ser reivindicado pelo período selecionado.
+    _insert_registro("OFICINA Z", data_producao="2026-08-01")
+
+    with pytest.raises(ch.ChargeAlreadyLaunchedError):
+        _launch("OFICINA Z")
+
+    with db.get_connection() as conn:
+        restantes = conn.execute(
+            text('SELECT COUNT(*) FROM registros_defeitos WHERE "FORNECEDOR" = :s'),
+            {"s": "OFICINA Z"},
+        ).scalar()
+        cobrados = conn.execute(
+            text('SELECT COUNT(*) FROM historico_cobrancas WHERE "FORNECEDOR" = :s'),
+            {"s": "OFICINA Z"},
+        ).scalar()
+    assert restantes == 1   # nada foi apagado
+    assert cobrados == 0    # nada foi gravado
+
+
+def test_launch_charge_split_writes_both_halves_with_same_code(temp_db):
+    import src.data.divida_dividida as dd
+
+    _insert_registro("OFICINA W")
+
+    cod = _launch("OFICINA W", df_empresa=_charge_df("OFICINA W", valor=40.0))
+
+    with db.get_connection() as conn:
+        forn = conn.execute(
+            text(
+                'SELECT "VALOR DO PROCESSO BRL" FROM historico_cobrancas '
+                'WHERE "COD_LANCAMENTO" = :c'
+            ),
+            {"c": cod},
+        ).fetchone()
+        emp = conn.execute(
+            text(
+                'SELECT "VALOR DO PROCESSO BRL", "STATUS_COBRANCA" '
+                'FROM tb_divida_dividida WHERE "COD_LANCAMENTO" = :c'
+            ),
+            {"c": cod},
+        ).fetchone()
+
+    assert forn[0] == 100.0
+    assert emp[0] == 40.0
+    assert emp[1] == dd.STATUS_DIVIDIDA
 
 
 # ── migrate_contestado_to_devolucao: compatibilidade com dados legados ─────────

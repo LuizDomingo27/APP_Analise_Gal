@@ -17,7 +17,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from src.config.settings import COLS
+from src.config.settings import CACHE_TTL_SECONDS, COLS
 from src.data.database import create_tables, get_connection
 from src.data.cobranca_history import HISTORY_LABELS, _COL_WIDTHS
 
@@ -36,7 +36,7 @@ _HEADER_OFFSET = 5
 
 # ── Público: leitura ──────────────────────────────────────────────────────────
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_devolucoes() -> pd.DataFrame | None:
     """Carrega o histórico completo de devolucoes. Retorna None se vazio."""
     create_tables()

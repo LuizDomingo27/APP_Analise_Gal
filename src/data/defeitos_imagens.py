@@ -26,6 +26,7 @@ import unicodedata
 import streamlit as st
 from sqlalchemy import text
 
+from src.config.settings import CACHE_TTL_SECONDS
 from src.data.database import (
     DEFEITOS_IMAGENS_DDL,
     DatabaseUnavailableError,
@@ -76,7 +77,7 @@ def _ensure_schema() -> None:
 
 # ── Leitura ───────────────────────────────────────────────────────────────────
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def carregar_catalogo() -> dict[str, dict]:
     """
     Carrega todo o catálogo já pronto para renderizar, indexado pela chave
@@ -123,7 +124,7 @@ def imagem_do_defeito(remonte: str, catalogo: dict[str, dict]) -> str | None:
     return (catalogo.get(normalizar_defeito(remonte)) or {}).get("data_uri")
 
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def listar_defeitos() -> list[dict]:
     """
     Lista os defeitos já cadastrados (chave, nome), em ordem alfabética.

@@ -19,7 +19,7 @@ import pandas as pd
 import streamlit as st
 from sqlalchemy import text
 
-from src.config.settings import COLS
+from src.config.settings import CACHE_TTL_SECONDS, COLS
 from src.data.database import create_tables, get_connection
 
 # ── Colunas de texto sujeitas a inconsistência de digitação ───────────────────
@@ -57,7 +57,7 @@ def _sync_after_write() -> None:
 
 # ── Unificação de valores (find & replace em massa) ───────────────────────────
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def get_value_counts(column: str) -> pd.DataFrame:
     """
     Retorna os valores distintos de `column` em registros_defeitos com a
@@ -205,7 +205,7 @@ def update_record_fields(rowid: int, updates: dict) -> bool:
     return affected > 0
 
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def get_distinct_suppliers() -> list[str]:
     """Lista de fornecedores distintos em registros_defeitos, ordenada.
 

@@ -19,6 +19,7 @@ from datetime import datetime
 import streamlit as st
 from sqlalchemy import text
 
+from src.config.settings import CACHE_TTL_SECONDS
 from src.data.database import get_connection
 
 # ── Parâmetros de hashing ─────────────────────────────────────────────────────
@@ -117,7 +118,7 @@ def get_user(username: str) -> dict | None:
     return dict(zip(keys, row))
 
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def list_users() -> list[dict]:
     """Lista usuários (sem hashes) para exibição no painel de gestão.
 

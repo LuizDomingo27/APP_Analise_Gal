@@ -18,10 +18,18 @@ from openpyxl.utils import get_column_letter
 
 from sqlalchemy import text
 
-from src.config.settings import COLS, DATASET_DIR
-from src.data.database import create_tables, get_connection
+from src.config.settings import CACHE_TTL_SECONDS, COLS, DATASET_DIR
+from src.data.database import advisory_lock, create_tables, get_connection
 
 logger = logging.getLogger(__name__)
+
+
+class ChargeAlreadyLaunchedError(RuntimeError):
+    """
+    Os registros da cobrança já não estavam mais na base ativa no momento da
+    gravação — outra sessão lançou essa mesma cobrança primeiro. Levantada por
+    `launch_charge` com a transação já revertida: nada foi gravado.
+    """
 
 # ── Legado: mantido para imports externos que ainda referenciam este caminho ──
 _BASE_DIR   = Path(__file__).resolve().parents[2]
@@ -57,6 +65,33 @@ _SAVE_COLS = [
     COLS["minutes"],
     COLS["value_brl"],
 ]
+
+# Colunas de dados comuns a historico_cobrancas, pagamentos_concluidos e
+# devolucoes — as três tabelas têm o mesmo schema. `id` fica de fora de
+# propósito: é PK auto-gerada, e o destino do move gera a sua própria.
+_CHARGE_COLUMNS = [
+    "COD_LANCAMENTO",
+    "DATA_COBRANCA",
+    "DATA_VENCIMENTO",
+    "DATA_PAGAMENTO",
+    "CNPJ_FORNECEDOR",
+    COLS["status"],
+    COLS["order"],
+    COLS["date"],
+    COLS["supplier"],
+    COLS["quantity"],
+    COLS["defect"],
+    COLS["real_cut"],
+    COLS["minutes"],
+    COLS["value_brl"],
+]
+
+# Status que tiram o lançamento do fluxo de cobrança, movendo-o para outra
+# tabela. "Pendente" não está aqui: ele permanece em historico_cobrancas.
+_TERMINAL_TABLES = {
+    "Pago":      "pagamentos_concluidos",
+    "Devolução": "devolucoes",
+}
 
 HISTORY_LABELS = {
     COLS["order"]:     "OM",
@@ -264,11 +299,160 @@ def save_charge_to_history(
     )
 
     with get_connection() as conn:
-        df_save.to_sql("historico_cobrancas", conn, if_exists="append", index=False)
+        insert_charge_rows(conn, df_save)
         conn.commit()
 
     load_history.clear()
     return cod_lancamento
+
+
+def insert_charge_rows(
+    conn, rows_fornecedor: pd.DataFrame, rows_empresa: pd.DataFrame | None = None
+) -> None:
+    """
+    Insere as linhas de uma cobrança usando a conexão/transação de `conn`, sem
+    comitar — quem chama decide o escopo da transação. `rows_empresa`, quando
+    informado, é a metade absorvida pela empresa numa cobrança dividida e vai
+    para tb_divida_dividida.
+
+    Ponto único de escrita das cobranças: usado tanto pelo caminho simples
+    (save_charge_to_history / save_split_charge) quanto pelo lançamento atômico
+    com reivindicação (launch_charge), para que as três rotas gravem igual.
+    """
+    rows_fornecedor.to_sql("historico_cobrancas", conn, if_exists="append", index=False)
+    if rows_empresa is not None:
+        rows_empresa.to_sql("tb_divida_dividida", conn, if_exists="append", index=False)
+
+
+def _claim_records(
+    conn,
+    supplier: str,
+    reference_date: date | None,
+    reference_date_end: date | None,
+) -> int:
+    """
+    Reivindica os registros do fornecedor em registros_defeitos, apagando-os, e
+    retorna quantos foram apagados. Zero significa que não havia nada a cobrar —
+    outra sessão já lançou esta cobrança.
+
+    É o DELETE que serve de trava: ele bloqueia as linhas, então duas sessões
+    lançando a mesma cobrança ao mesmo tempo se serializam aqui, e a segunda
+    encontra zero linhas depois que a primeira comita.
+    """
+    if reference_date is not None:
+        date_end = reference_date_end if reference_date_end is not None else reference_date
+        return conn.execute(
+            text(
+                'DELETE FROM registros_defeitos '
+                'WHERE "FORNECEDOR" = :sup '
+                'AND "DATA DE PRODUÇÃO ACABAMENTO" BETWEEN :d1 AND :d2'
+            ),
+            {
+                "sup": supplier,
+                "d1": reference_date.strftime("%Y-%m-%d"),
+                "d2": date_end.strftime("%Y-%m-%d"),
+            },
+        ).rowcount
+    return conn.execute(
+        text('DELETE FROM registros_defeitos WHERE "FORNECEDOR" = :sup'),
+        {"sup": supplier},
+    ).rowcount
+
+
+def launch_charge(
+    supplier: str,
+    cnpj: str,
+    df_records: pd.DataFrame,
+    data_cobranca: date,
+    data_vencimento: date,
+    reference_date: date | None = None,
+    reference_date_end: date | None = None,
+    df_empresa: pd.DataFrame | None = None,
+) -> str:
+    """
+    Lança uma cobrança e retorna o COD_LANCAMENTO gerado. Numa ÚNICA transação:
+    apaga os registros do fornecedor no período de registros_defeitos e grava a
+    cobrança em historico_cobrancas (mais a metade da empresa em
+    tb_divida_dividida, quando `df_empresa` é informado).
+
+    Levanta ChargeAlreadyLaunchedError, sem gravar nada, se não havia registros
+    a apagar: isso significa que outra sessão já lançou esta cobrança. Sem essa
+    reivindicação, dois admins com a página aberta lançariam a mesma cobrança
+    com dois códigos diferentes — cada um decide o que cobrar a partir do
+    snapshot em `session_state`, que não sabe do que o outro fez.
+
+    A transação única também garante que nunca fique cobrança gravada com os
+    registros de origem ainda na base ativa (o que convidaria a uma segunda
+    cobrança do mesmo período) nem o contrário.
+    """
+    create_tables()
+    if df_empresa is not None:
+        # Import local: divida_dividida importa deste módulo (ciclo no topo).
+        from src.data.divida_dividida import STATUS_DIVIDIDA, _ensure_schema
+        _ensure_schema()
+
+    cod_lancamento = gerar_cod_lancamento()
+
+    rows_forn = build_charge_rows(
+        df_records, cod_lancamento, data_cobranca, data_vencimento, cnpj,
+        status=STATUS_DEFAULT,
+    )
+    rows_emp = (
+        build_charge_rows(
+            df_empresa, cod_lancamento, data_cobranca, data_vencimento, cnpj,
+            status=STATUS_DIVIDIDA,
+        )
+        if df_empresa is not None
+        else None
+    )
+
+    with get_connection() as conn:
+        claimed = _claim_records(conn, supplier, reference_date, reference_date_end)
+        if not claimed:
+            conn.rollback()
+            raise ChargeAlreadyLaunchedError(
+                f"Nenhum registro de {supplier} foi encontrado para o período "
+                "selecionado. Esta cobrança provavelmente já foi lançada por "
+                "outro usuário — recarregue a página para ver a base atualizada."
+            )
+        insert_charge_rows(conn, rows_forn, rows_emp)
+        conn.commit()
+
+    load_history.clear()
+    if rows_emp is not None:
+        from src.data.divida_dividida import load_dividas_divididas
+        load_dividas_divididas.clear()
+
+    from src.data.loader import load_data_from_disk
+    load_data_from_disk.clear()
+    _drop_supplier_from_session(supplier, reference_date, reference_date_end)
+
+    return cod_lancamento
+
+
+def _drop_supplier_from_session(
+    supplier: str,
+    reference_date: date | None = None,
+    reference_date_end: date | None = None,
+) -> None:
+    """
+    Remove do DataFrame ativo em session_state os registros já reivindicados no
+    banco por launch_charge, para que a tela reflita a cobrança recém-lançada
+    sem esperar o TTL do cache. Espelha exatamente o filtro do DELETE.
+    """
+    if "df" not in st.session_state:
+        return
+
+    df_atual = st.session_state["df"]
+    mask_del = df_atual[COLS["supplier"]] == supplier
+    if reference_date is not None:
+        date_end = reference_date_end if reference_date_end is not None else reference_date
+        mask_del &= (
+            (df_atual[COLS["date"]].dt.date >= reference_date)
+            & (df_atual[COLS["date"]].dt.date <= date_end)
+        )
+
+    st.session_state["df"] = df_atual[~mask_del].copy().reset_index(drop=True)
 
 
 def update_lancamento_status(
@@ -277,83 +461,135 @@ def update_lancamento_status(
     data_pagamento: date | None = None,
 ) -> bool:
     """
-    Atualiza o status de todos os itens de um lançamento.
-    Quando novo_status == "Pago": move atomicamente para pagamentos_concluidos.
-    Quando novo_status == "Devolução": move atomicamente para devolucoes — a
-    oficina optou por consertar as peças com defeito em vez de pagar o
-    desconto, então elas saem do fluxo de cobrança e vão para o controle
-    de devolução (mesma regra de remoção usada para "Pago").
+    Atualiza o status de todos os itens de um lançamento e, nos status
+    terminais, move-o para a tabela de destino: "Pago" → pagamentos_concluidos,
+    "Devolução" → devolucoes (a oficina optou por consertar as peças em vez de
+    pagar o desconto, então elas saem do fluxo de cobrança). "Pendente" apenas
+    atualiza o status no lugar.
+
+    Retorna True se o lançamento foi movido/atualizado por ESTA chamada, e False
+    se o status é inválido ou se não havia nada a fazer — o código não existe, ou
+    outra sessão já concluiu o mesmo lançamento. Falhas de banco propagam como
+    DatabaseUnavailableError para a fronteira @page_guard da página; nunca são
+    convertidas em False, senão uma indisponibilidade do Supabase ficaria
+    indistinguível de "código não encontrado" e o admin tentaria de novo sem
+    saber o motivo real.
+
+    Concorrência: o UPDATE inicial é o que reivindica o lançamento. Ele trava as
+    linhas, então dois admins clicando "Pago" ao mesmo tempo não duplicam o
+    lançamento no destino: a segunda transação fica bloqueada, e quando a
+    primeira comita (já tendo apagado as linhas) o UPDATE dela reavalia o WHERE,
+    não encontra mais nada, devolve rowcount 0 e esta função retorna False.
     """
     if novo_status not in STATUS_OPTIONS:
         return False
 
     create_tables()
 
-    try:
-        with get_connection() as conn:
-            rows = conn.execute(
-                text('SELECT COUNT(*) FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
+    # Uniforme para os três status: só "Pago" carrega data de pagamento. Assim o
+    # INSERT ... SELECT abaixo copia as linhas já com os valores finais.
+    data_pagamento_br = (
+        data_pagamento.strftime("%d/%m/%Y")
+        if novo_status == "Pago" and data_pagamento
+        else ""
+    )
+
+    with get_connection() as conn:
+        claimed = conn.execute(
+            text(
+                'UPDATE historico_cobrancas SET "STATUS_COBRANCA" = :s, '
+                '"DATA_PAGAMENTO" = :dp WHERE "COD_LANCAMENTO" = :cod'
+            ),
+            {"s": novo_status, "dp": data_pagamento_br, "cod": cod_lancamento},
+        ).rowcount
+        if not claimed:
+            return False
+
+        destino = _TERMINAL_TABLES.get(novo_status)
+        if destino:
+            # INSERT ... SELECT copia direto no banco (sem trazer as linhas para
+            # o Python) e omite `id`, que é PK auto-gerada no destino.
+            cols_sql = ", ".join(f'"{c}"' for c in _CHARGE_COLUMNS)
+            conn.execute(
+                text(
+                    f"INSERT INTO {destino} ({cols_sql}) SELECT {cols_sql} "
+                    'FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'
+                ),
                 {"cod": cod_lancamento},
-            ).fetchone()
-            if not rows or rows[0] == 0:
-                return False
+            )
+            conn.execute(
+                text('DELETE FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
+                {"cod": cod_lancamento},
+            )
 
-            if novo_status == "Pago":
-                data_pagamento_br = data_pagamento.strftime("%d/%m/%Y") if data_pagamento else ""
+        conn.commit()
 
-                df_pago = pd.read_sql(
-                    text('SELECT * FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
-                    conn,
-                    params={"cod": cod_lancamento},
-                )
-                df_pago[COLS["status"]]  = "Pago"
-                df_pago["DATA_PAGAMENTO"] = data_pagamento_br
-                # `id` é PK auto-gerada em pagamentos_concluidos; não reinserir a de origem.
-                df_pago = df_pago.drop(columns=["id"], errors="ignore")
+    load_history.clear()
+    if novo_status == "Pago":
+        from src.data.payment_history import load_payments
+        load_payments.clear()
+    elif novo_status == "Devolução":
+        from src.data.devolucao_history import load_devolucoes
+        load_devolucoes.clear()
+    return True
 
-                df_pago.to_sql("pagamentos_concluidos", conn, if_exists="append", index=False)
-                conn.execute(
-                    text('DELETE FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
-                    {"cod": cod_lancamento},
-                )
-            elif novo_status == "Devolução":
-                df_dev = pd.read_sql(
-                    text('SELECT * FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
-                    conn,
-                    params={"cod": cod_lancamento},
-                )
-                df_dev[COLS["status"]]   = "Devolução"
-                df_dev["DATA_PAGAMENTO"] = ""
-                # `id` é PK auto-gerada em devolucoes; não reinserir a de origem.
-                df_dev = df_dev.drop(columns=["id"], errors="ignore")
 
-                df_dev.to_sql("devolucoes", conn, if_exists="append", index=False)
-                conn.execute(
-                    text('DELETE FROM historico_cobrancas WHERE "COD_LANCAMENTO" = :cod'),
-                    {"cod": cod_lancamento},
-                )
+def _migrate_by_status(
+    status_origem: str, destino: str, status_destino: str | None = None
+) -> int:
+    """
+    Move todos os lançamentos com STATUS_COBRANCA = `status_origem` de
+    historico_cobrancas para `destino`, opcionalmente reescrevendo o status para
+    `status_destino`. Retorna quantas linhas foram movidas. Idempotente.
+
+    Concorrência: roda inteira sob advisory lock porque estas migrações são
+    disparadas na abertura da página de Histórico — com dois usuários entrando
+    ao mesmo tempo, sem a trava as duas transações copiariam as MESMAS linhas
+    para o destino antes de qualquer uma apagar a origem, duplicando pagamentos.
+    """
+    create_tables()
+
+    with get_connection() as conn:
+        advisory_lock(conn, f"migrate:{status_origem}")
+
+        count = conn.execute(
+            text(
+                'SELECT COUNT(*) FROM historico_cobrancas '
+                'WHERE "STATUS_COBRANCA" = :origem'
+            ),
+            {"origem": status_origem},
+        ).scalar()
+        if not count:
+            return 0
+
+        # A projeção do SELECT substitui status/data de pagamento quando o
+        # destino exige valores diferentes dos da origem.
+        select_cols = []
+        for col in _CHARGE_COLUMNS:
+            if col == COLS["status"] and status_destino is not None:
+                select_cols.append(":status_destino")
+            elif col == "DATA_PAGAMENTO" and status_destino is not None:
+                select_cols.append("''")
             else:
-                conn.execute(
-                    text(
-                        'UPDATE historico_cobrancas SET "STATUS_COBRANCA" = :s, '
-                        '"DATA_PAGAMENTO" = \'\' WHERE "COD_LANCAMENTO" = :cod'
-                    ),
-                    {"s": novo_status, "cod": cod_lancamento},
-                )
+                select_cols.append(f'"{col}"')
 
-            conn.commit()
+        insert_cols = ", ".join(f'"{c}"' for c in _CHARGE_COLUMNS)
+        conn.execute(
+            text(
+                f"INSERT INTO {destino} ({insert_cols}) "
+                f"SELECT {', '.join(select_cols)} FROM historico_cobrancas "
+                'WHERE "STATUS_COBRANCA" = :origem'
+            ),
+            {"origem": status_origem, "status_destino": status_destino},
+        )
+        conn.execute(
+            text('DELETE FROM historico_cobrancas WHERE "STATUS_COBRANCA" = :origem'),
+            {"origem": status_origem},
+        )
+        conn.commit()
 
-        load_history.clear()
-        if novo_status == "Pago":
-            from src.data.payment_history import load_payments
-            load_payments.clear()
-        elif novo_status == "Devolução":
-            from src.data.devolucao_history import load_devolucoes
-            load_devolucoes.clear()
-        return True
-
-    except Exception:
-        return False
+    load_history.clear()
+    return int(count)
 
 
 def migrate_paid_to_payments() -> int:
@@ -361,28 +597,10 @@ def migrate_paid_to_payments() -> int:
     Move lançamentos com STATUS='Pago' que porventura ainda estejam em
     historico_cobrancas para pagamentos_concluidos. Idempotente.
     """
-    create_tables()
-
-    with get_connection() as conn:
-        df_pago = pd.read_sql(
-            text('SELECT * FROM historico_cobrancas WHERE "STATUS_COBRANCA" = \'Pago\''),
-            conn,
-        )
-        if df_pago.empty:
-            return 0
-
-        # `id` é PK auto-gerada em pagamentos_concluidos; não reinserir a de origem.
-        df_pago = df_pago.drop(columns=["id"], errors="ignore")
-        df_pago.to_sql("pagamentos_concluidos", conn, if_exists="append", index=False)
-        conn.execute(
-            text('DELETE FROM historico_cobrancas WHERE "STATUS_COBRANCA" = \'Pago\'')
-        )
-        conn.commit()
-
-    count = len(df_pago)
-    load_history.clear()
-    from src.data.payment_history import load_payments
-    load_payments.clear()
+    count = _migrate_by_status("Pago", "pagamentos_concluidos")
+    if count:
+        from src.data.payment_history import load_payments
+        load_payments.clear()
     return count
 
 
@@ -393,113 +611,16 @@ def migrate_contestado_to_devolucao() -> int:
     porventura ainda estejam em historico_cobrancas para devolucoes,
     seguindo a mesma regra da opção atual. Idempotente.
     """
-    create_tables()
-
-    with get_connection() as conn:
-        df_legado = pd.read_sql(
-            text('SELECT * FROM historico_cobrancas WHERE "STATUS_COBRANCA" = \'Contestado\''),
-            conn,
-        )
-        if df_legado.empty:
-            return 0
-
-        df_legado[COLS["status"]]   = "Devolução"
-        df_legado["DATA_PAGAMENTO"] = ""
-        # `id` é PK auto-gerada em devolucoes; não reinserir a de origem.
-        df_legado = df_legado.drop(columns=["id"], errors="ignore")
-        df_legado.to_sql("devolucoes", conn, if_exists="append", index=False)
-        conn.execute(
-            text('DELETE FROM historico_cobrancas WHERE "STATUS_COBRANCA" = \'Contestado\'')
-        )
-        conn.commit()
-
-    count = len(df_legado)
-    load_history.clear()
-    from src.data.devolucao_history import load_devolucoes
-    load_devolucoes.clear()
+    count = _migrate_by_status("Contestado", "devolucoes", status_destino="Devolução")
+    if count:
+        from src.data.devolucao_history import load_devolucoes
+        load_devolucoes.clear()
     return count
-
-
-def remove_supplier_from_df(
-    supplier: str,
-    supplier_col: str,
-    reference_date: date | None = None,
-    reference_date_end: date | None = None,
-) -> None:
-    """
-    Remove os registros do fornecedor da tabela registros_defeitos e
-    atualiza o session_state.
-
-    Quando `reference_date` é informado, remove apenas os registros desse
-    fornecedor cuja data de produção esteja dentro do intervalo
-    [reference_date, reference_date_end] (cobrança lançada por período).
-    Se `reference_date_end` for omitido, usa `reference_date` como data
-    única (equivalente a um intervalo de 1 dia — comportamento legado).
-    Quando `reference_date` também é omitido, remove todos os registros
-    do fornecedor.
-    """
-    if "df" not in st.session_state:
-        return
-
-    df_atual = st.session_state["df"]
-    mask_del = df_atual[supplier_col] == supplier
-    if reference_date is not None:
-        date_end = reference_date_end if reference_date_end is not None else reference_date
-        mask_del &= (
-            (df_atual[COLS["date"]].dt.date >= reference_date)
-            & (df_atual[COLS["date"]].dt.date <= date_end)
-        )
-
-    # A exclusão no Postgres roda ANTES de tocar no session_state: se a
-    # cobrança já foi gravada em historico_cobrancas/tb_divida_dividida e o
-    # DELETE aqui falhar, o registro fonte precisa continuar visível (senão
-    # o admin não percebe e pode lançar a mesma cobrança de novo).
-    try:
-        create_tables()
-        with get_connection() as conn:
-            if reference_date is not None:
-                date_end = reference_date_end if reference_date_end is not None else reference_date
-                conn.execute(
-                    text(
-                        'DELETE FROM registros_defeitos '
-                        'WHERE "FORNECEDOR" = :sup '
-                        'AND "DATA DE PRODUÇÃO ACABAMENTO" BETWEEN :d1 AND :d2'
-                    ),
-                    {
-                        "sup": supplier,
-                        "d1": reference_date.strftime("%Y-%m-%d"),
-                        "d2": date_end.strftime("%Y-%m-%d"),
-                    },
-                )
-            else:
-                conn.execute(
-                    text('DELETE FROM registros_defeitos WHERE "FORNECEDOR" = :sup'),
-                    {"sup": supplier},
-                )
-            conn.commit()
-    except Exception as exc:
-        logger.exception(
-            "Falha ao remover fornecedor %s de registros_defeitos após lançar cobrança",
-            supplier,
-        )
-        st.error(
-            f"⚠️ A cobrança foi lançada, mas não foi possível remover os registros "
-            f"do fornecedor da base ativa ({exc}). Recarregue a página antes de lançar "
-            f"uma nova cobrança para este fornecedor, para evitar cobrança duplicada."
-        )
-        return
-
-    df_filtrado = df_atual[~mask_del].copy()
-    df_filtrado.reset_index(drop=True, inplace=True)
-    st.session_state["df"] = df_filtrado
-
-    from src.data.loader import load_data_from_disk
-    load_data_from_disk.clear()
 
 
 # ── Público: leitura ──────────────────────────────────────────────────────────
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_history() -> pd.DataFrame | None:
     """Carrega o histórico completo de historico_cobrancas. Retorna None se vazio."""
     create_tables()

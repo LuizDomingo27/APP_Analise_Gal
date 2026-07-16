@@ -12,7 +12,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from src.config.settings import COLS, DATASET_DIR
+from src.config.settings import CACHE_TTL_SECONDS, COLS, DATASET_DIR
 from src.data.database import create_tables, get_connection
 from src.data.cobranca_history import (
     HISTORY_LABELS,
@@ -55,7 +55,7 @@ def append_payments(df_rows: pd.DataFrame) -> None:
     load_payments.clear()
 
 
-@st.cache_data
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def load_payments() -> pd.DataFrame | None:
     """Carrega o histórico completo de pagamentos_concluidos. Retorna None se vazio."""
     create_tables()

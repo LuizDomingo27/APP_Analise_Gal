@@ -41,6 +41,18 @@ def temp_db(tmp_path, monkeypatch):
     auth_db.list_users.clear()
 
 
+# ── advisory_lock ─────────────────────────────────────────────────────────────
+
+def test_advisory_lock_is_noop_on_sqlite(temp_db):
+    """
+    A trava é uma facilidade do Postgres. Nos testes (SQLite) ela precisa ser um
+    no-op silencioso, senão todo write path travado quebraria fora de produção.
+    """
+    with db.get_connection() as conn:
+        db.advisory_lock(conn, "import:qualquer_tabela")  # não deve levantar
+        assert conn.execute(text("SELECT 1")).scalar() == 1
+
+
 # ── Tradução de mensagens: cada categoria de erro técnico vira uma mensagem
 #    diferente, nenhuma delas expõe SQL, nomes de tabela/coluna ou stacktrace ──
 
