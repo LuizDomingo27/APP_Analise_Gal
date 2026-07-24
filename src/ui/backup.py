@@ -58,7 +58,12 @@ def _inject_styles() -> None:
     st.markdown(
         """
         <style>
+        /* Mesma largura fixa (500px, centralizada) do card de criar usuário,
+           para as duas seções da página ficarem alinhadas. */
         div[class*="st-key-backup_card"] {
+            max-width: 500px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
             background: linear-gradient(160deg, var(--ag-bg-surface) 0%, var(--ag-bg-surface-alt) 100%) !important;
             border: 1px solid rgba(var(--ag-primary-bright-rgb),0.30) !important;
             border-top: 3px solid var(--ag-primary) !important;

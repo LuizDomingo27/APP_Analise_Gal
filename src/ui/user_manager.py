@@ -36,8 +36,14 @@ def _inject_custom_styles() -> None:
             border-color: rgba(var(--ag-primary-rgb),0.22) !important;
         }}
 
-        /* ── Card do Formulário (Padrão do Editor de Registros) ── */
+        /* ── Card do Formulário (Padrão do Editor de Registros) ──
+           Largura fixa de 500px centralizada: em telas largas uma proporção
+           (st.columns) deixava o formulário esticado demais. As margens
+           automáticas centralizam mesmo dentro do flex-column do Streamlit. */
         div[class*="st-key-form_container"] {{
+            max-width: 500px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
             background: linear-gradient(160deg, var(--ag-bg-surface) 0%, var(--ag-bg-surface-alt) 100%) !important;
             border: 1px solid rgba(var(--ag-primary-bright-rgb),0.30) !important;
             border-top: 3px solid var(--ag-primary) !important;
@@ -177,71 +183,74 @@ def _render_user_manager_page_inner() -> None:
     current_user = session.current_user() or {}
     users = auth_db.list_users()
 
-    # ── Formulário — centralizado ao meio da tela, no mesmo card/estilo do
-    #    editor de registros (degradê, borda verde-água, sombra de destaque) ──
-    _, col_form, _ = st.columns([1, 2, 1])
-    with col_form:
-        with st.container(key="form_container"):
-            _render_form_group_label("✦ Identificação e Acesso")
+    # ── Formulário — card de 500px centralizado (largura definida no CSS), no
+    #    mesmo estilo do editor de registros (degradê, borda verde-água, sombra) ──
+    with st.container(key="form_container"):
+        _render_form_group_label("✦ Identificação e Acesso")
 
-            # Exibe feedbacks do formulário
-            form_error = st.session_state.pop("user_form_error", None)
-            form_success = st.session_state.pop("user_form_success", None)
+        # Exibe feedbacks do formulário
+        form_error = st.session_state.pop("user_form_error", None)
+        form_success = st.session_state.pop("user_form_success", None)
 
-            if form_error:
-                st.error(form_error)
-            if form_success:
-                st.success(form_success)
+        if form_error:
+            st.error(form_error)
+        if form_success:
+            st.success(form_success)
 
-            with st.form("form_create_user", border=False, clear_on_submit=True):
-                new_username = st.text_input(
-                    "👤 Nome de usuário (login)",
-                    placeholder="ex: maria.silva",
-                    help="Use apenas letras minúsculas, números, pontos ou traços (3 a 32 caracteres)."
-                )
-                new_nome = st.text_input(
-                    "✍️ Nome completo",
-                    placeholder="ex: Maria Silva"
-                )
+        with st.form("form_create_user", border=False, clear_on_submit=True):
+            new_username = st.text_input(
+                "👤 Nome de usuário (login)",
+                placeholder="ex: maria.silva",
+                help="Use apenas letras minúsculas, números, pontos ou traços (3 a 32 caracteres)."
+            )
+            new_nome = st.text_input(
+                "✍️ Nome completo",
+                placeholder="ex: Maria Silva"
+            )
 
-                _render_form_divider()
-                _render_form_group_label("✦ Segurança e Perfil")
+            _render_form_divider()
+            _render_form_group_label("✦ Segurança e Perfil")
 
-                new_password = st.text_input(
-                    "🔒 Senha provisória",
-                    type="password",
-                    placeholder="mínimo de 6 caracteres"
-                )
-                new_role = st.selectbox(
-                    "🛡️ Perfil de Acesso",
-                    ["user", "admin"],
-                    format_func=lambda x: "Administrador (Acesso total)" if x == "admin" else "Usuário Comum"
-                )
+            new_password = st.text_input(
+                "🔒 Senha provisória",
+                type="password",
+                placeholder="mínimo de 6 caracteres"
+            )
+            new_role = st.selectbox(
+                "🛡️ Perfil de Acesso",
+                ["user", "admin"],
+                format_func=lambda x: "Administrador (Acesso total)" if x == "admin" else "Usuário Comum"
+            )
 
-                st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
-                submit = st.form_submit_button("💾 Criar Usuário", type="primary", use_container_width=True)
+            st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+            submit = st.form_submit_button("💾 Criar Usuário", type="primary", use_container_width=True)
 
-            if submit:
-                ok, msg = auth_db.create_user(
-                    username=new_username,
-                    nome=new_nome,
-                    password=new_password,
-                    role=new_role
-                )
-                if ok:
-                    st.session_state["user_form_success"] = msg
-                    st.session_state.pop("confirm_delete", None)  # Limpa exclusão pendente se houver
-                    st.rerun()
-                else:
-                    st.session_state["user_form_error"] = msg
-                    st.rerun()
+        if submit:
+            ok, msg = auth_db.create_user(
+                username=new_username,
+                nome=new_nome,
+                password=new_password,
+                role=new_role
+            )
+            if ok:
+                st.session_state["user_form_success"] = msg
+                st.session_state.pop("confirm_delete", None)  # Limpa exclusão pendente se houver
+                st.rerun()
+            else:
+                st.session_state["user_form_error"] = msg
+                st.rerun()
 
     # ── Lista de usuários cadastrados — abaixo do formulário, largura total ──
     st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
     st.markdown("### 📋 Usuários Cadastrados")
 
-    # Mensagem de confirmação de exclusão
+    # Mensagem de confirmação de exclusão. Se o usuário já não existe mais
+    # (removido em outra sessão), descarta a pendência em vez de confirmar algo
+    # que não pode acontecer.
     confirm_del = st.session_state.get("confirm_delete")
+    if confirm_del and not any(u["username"] == confirm_del for u in users):
+        st.session_state.pop("confirm_delete", None)
+        confirm_del = None
     if confirm_del:
         st.markdown(
             f"""
@@ -335,11 +344,16 @@ def _render_user_manager_page_inner() -> None:
                             unsafe_allow_html=True
                         )
                     else:
-                        st.button(
+                        # Não exclui direto: marca o usuário e recarrega, para o
+                        # painel de confirmação (renderizado acima da lista)
+                        # aparecer antes de qualquer remoção.
+                        if st.button(
                             "🗑️",
                             key=f"del_btn_{u['username']}_{idx}",
                             help=f"Remover usuário {u['nome']}"
-                        )
+                        ):
+                            st.session_state["confirm_delete"] = u["username"]
+                            st.rerun()
 
     # ── Backup de todas as tabelas (somente admin) ──
     # A própria seção revalida o papel do usuário antes de ler qualquer dado.
