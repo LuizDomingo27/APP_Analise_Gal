@@ -15,7 +15,8 @@ from datetime import date, timedelta
 import pandas as pd
 import streamlit as st
 
-from src.config.settings import COLS, COLORS
+from src.config.settings import COLS
+
 from src.data.records_editor import (
     EDITABLE_TEXT_COLUMNS,
     get_distinct_suppliers,
@@ -98,9 +99,9 @@ def _render_html_table(df_display: pd.DataFrame, height: int = 400, min_width: i
     min_width_css = f"min-width:{min_width}px;" if min_width else ""
 
     TH = (
-        "padding:11px 14px;text-align:center;color:#FFFFFF;font-weight:600;"
+        "padding:11px 14px;text-align:center;color:var(--ag-text-on-dark);font-weight:600;"
         "font-size:11px;text-transform:uppercase;letter-spacing:0.7px;"
-        "background:#00805C;border-bottom:2px solid #00B884;"
+        "background:var(--ag-primary-dark);border-bottom:2px solid var(--ag-primary);"
         "white-space:nowrap;position:sticky;top:0;z-index:1;"
     )
     TH_L = TH + "text-align:left;"
@@ -114,14 +115,14 @@ def _render_html_table(df_display: pd.DataFrame, height: int = 400, min_width: i
         is_left = h in _LEFT_ALIGN_LABELS
         align = "text-align:left;" if is_left else "text-align:center;"
         base_td = (
-            f"padding:9px 14px;font-size:12.5px;color:#0D1B17;"
-            f"border-bottom:1px solid rgba(0,229,160,0.12);"
+            f"padding:9px 14px;font-size:12.5px;color:var(--ag-text-primary);"
+            f"border-bottom:1px solid rgba(var(--ag-primary-bright-rgb),0.12);"
             f"{align}{row_bg}"
         )
         if h in ("Valor (R$)", "Valor do Processo (R$)"):
             return (
                 f'<td style="{base_td}">'
-                f'<span style="background:#00B884;color:#FFFFFF;'
+                f'<span style="background:var(--ag-primary);color:var(--ag-text-on-dark);'
                 f'padding:3px 9px;border-radius:6px;'
                 f'font-size:12px;font-weight:600;white-space:nowrap;">'
                 f'{val}</span></td>'
@@ -129,24 +130,24 @@ def _render_html_table(df_display: pd.DataFrame, height: int = 400, min_width: i
         return f'<td style="{base_td}">{val}</td>'
 
     rows_html = "".join(
-        f"<tr>" + "".join(_make_cell(h, row[h], "background:#FFFFFF;" if i % 2 == 1 else "background:#F2F7F5;") for h in headers) + "</tr>"
+        f"<tr>" + "".join(_make_cell(h, row[h], "background:var(--ag-bg-surface);" if i % 2 == 1 else "background:var(--ag-bg-surface-alt);") for h in headers) + "</tr>"
         for i, (_, row) in enumerate(df_display.iterrows())
     )
 
     table_html = f"""
     <style>
       .nv-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
-      .nv-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
-      .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
-      .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
-      .nv-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
+      .nv-table-wrap::-webkit-scrollbar-track {{ background:var(--ag-bg-surface); border-radius:3px; }}
+      .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(var(--ag-primary-bright-rgb),0.45); border-radius:3px; }}
+      .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(var(--ag-primary-bright-rgb),0.70); }}
+      .nv-table-wrap tr:hover td {{ background:rgba(var(--ag-primary-bright-rgb),0.14)!important; transition:background 0.15s; }}
     </style>
     <div class="nv-table-wrap" style="
         max-height:{height}px; overflow:auto; border-radius:12px;
-        border:1px solid rgba(0,229,160,0.32);
-        border-top:2px solid #00B884;
-        background:#F2F7F5;
-        box-shadow:0 0 22px rgba(0,229,160,0.10);
+        border:1px solid rgba(var(--ag-primary-bright-rgb),0.32);
+        border-top:2px solid var(--ag-primary);
+        background:var(--ag-bg-surface-alt);
+        box-shadow:0 0 22px rgba(var(--ag-primary-bright-rgb),0.10);
     ">
       <table style="width:100%;border-collapse:collapse;{min_width_css}">
         <thead><tr>{head_html}</tr></thead>
@@ -164,22 +165,22 @@ def _render_html_table(df_display: pd.DataFrame, height: int = 400, min_width: i
 def _render_header() -> None:
     st.markdown(
         f"""
-        <div style="padding:0.5rem 0 1.2rem;border-bottom:1px solid rgba(0,0,0,0.06);margin-bottom:1.2rem">
+        <div style="padding:0.5rem 0 1.2rem;border-bottom:1px solid rgba(var(--ag-shadow-rgb),0.06);margin-bottom:1.2rem">
             <div style="display:flex;align-items:baseline;gap:12px">
-                <span style="font-size:26px;font-weight:700;color:{COLORS['text_primary']}">
+                <span style="font-size:26px;font-weight:700;color:var(--ag-text-primary)">
                     🛠️ Correção de Registros
                 </span>
-                <span style="font-size:12px;color:{COLORS['text_subtle']};
-                             background:rgba(0,229,160,0.18);
+                <span style="font-size:12px;color:var(--ag-text-subtle);
+                             background:rgba(var(--ag-primary-bright-rgb),0.18);
                              padding:3px 10px;border-radius:20px;
-                             border:1px solid rgba(0,229,160,0.3)">
+                             border:1px solid rgba(var(--ag-primary-bright-rgb),0.3)">
                     Base Ativa
                 </span>
             </div>
-            <p style="color:{COLORS['text_muted']};font-size:13px;margin:5px 0 0">
+            <p style="color:var(--ag-text-muted);font-size:13px;margin:5px 0 0">
                 Corrija valores digitados incorretamente (acentos, caracteres
                 especiais, variações de nome). Afeta apenas a tabela
-                <code style="background:rgba(0,229,160,0.12);padding:1px 6px;border-radius:4px">
+                <code style="background:rgba(var(--ag-primary-bright-rgb),0.12);padding:1px 6px;border-radius:4px">
                     registros_defeitos
                 </code>
                 — histórico e pagamentos de cobrança não são alterados.
@@ -197,7 +198,7 @@ def _render_header() -> None:
 def _render_unify_tab() -> None:
     st.markdown(
         f"""
-        <p style="font-size:12.5px;color:{COLORS['text_muted']};margin:4px 0 14px;line-height:1.6">
+        <p style="font-size:12.5px;color:var(--ag-text-muted);margin:4px 0 14px;line-height:1.6">
             Escolha uma coluna de texto, veja os valores distintos hoje cadastrados
             e corrija um valor errado (ex.: <code>FORNECEDOR LTDA</code> vs
             <code>FORNECEDOR LTDA</code> com acento diferente). A correção é
@@ -275,7 +276,7 @@ def _render_unify_tab() -> None:
 def _render_individual_edit_tab() -> None:
     st.markdown(
         f"""
-        <p style="font-size:12.5px;color:{COLORS['text_muted']};margin:4px 0 14px;line-height:1.6">
+        <p style="font-size:12.5px;color:var(--ag-text-muted);margin:4px 0 14px;line-height:1.6">
             Busque registros específicos, selecione um na lista abaixo da
             tabela e corrija os campos necessários no painel de edição.
         </p>
@@ -332,7 +333,7 @@ def _render_individual_edit_tab() -> None:
     _render_html_table(df_view, height=min(460, 50 + 38 * len(df_view)), min_width=980)
 
     st.markdown(
-        f"<p style='font-size:11px;color:{COLORS['text_subtle']};margin-top:6px'>"
+        f"<p style='font-size:11px;color:var(--ag-text-subtle);margin-top:6px'>"
         f"{len(df_results):,} registro(s) exibido(s)"
         f"{' (limitado às 500 primeiras linhas)' if len(df_results) >= 500 else ''}."
         f"</p>",
@@ -477,31 +478,31 @@ def _render_tabs_css() -> None:
         }}
         div[data-testid="stSegmentedControl"] button {{
             flex: 1 1 0 !important;
-            background: #FFFFFF !important;
-            border: 1px solid rgba(0,184,132,0.30) !important;
+            background: var(--ag-bg-surface) !important;
+            border: 1px solid rgba(var(--ag-primary-rgb),0.30) !important;
             border-radius: 10px !important;
             padding: 8px 14px !important;
             transition: all 0.18s ease !important;
         }}
         div[data-testid="stSegmentedControl"] button p {{
-            color: {COLORS['text_muted']} !important;
+            color: var(--ag-text-muted) !important;
             font-size: 13px !important;
             font-weight: 600 !important;
         }}
         div[data-testid="stSegmentedControl"] button:hover {{
-            border-color: #00B884 !important;
-            background: rgba(0,229,160,0.06) !important;
+            border-color: var(--ag-primary) !important;
+            background: rgba(var(--ag-primary-bright-rgb),0.06) !important;
         }}
         div[data-testid="stSegmentedControl"] button:hover p {{
-            color: {COLORS['text_primary']} !important;
+            color: var(--ag-text-primary) !important;
         }}
         div[data-testid="stSegmentedControl"] button[aria-checked="true"] {{
-            background: linear-gradient(135deg, #00E5A0, #00B884) !important;
-            border-color: #00B884 !important;
-            box-shadow: 0 2px 10px rgba(0,184,132,0.22) !important;
+            background: linear-gradient(135deg, var(--ag-primary-bright), var(--ag-primary)) !important;
+            border-color: var(--ag-primary) !important;
+            box-shadow: 0 2px 10px rgba(var(--ag-primary-rgb),0.22) !important;
         }}
         div[data-testid="stSegmentedControl"] button[aria-checked="true"] p {{
-            color: #04231B !important;
+            color: var(--ag-text-on-accent) !important;
             font-weight: 700 !important;
         }}
         </style>
@@ -513,7 +514,7 @@ def _render_tabs_css() -> None:
 def _render_section_label(text: str) -> None:
     st.markdown(
         f"""
-        <p style="font-size:11px;color:{COLORS['text_subtle']};
+        <p style="font-size:11px;color:var(--ag-text-subtle);
                   text-transform:uppercase;letter-spacing:0.7px;margin:0 0 8px">
             {text}
         </p>
@@ -525,7 +526,7 @@ def _render_section_label(text: str) -> None:
 def _render_form_group_label(text: str) -> None:
     st.markdown(
         f"""
-        <p style="font-size:10px;color:{COLORS['primary']};font-weight:700;
+        <p style="font-size:10px;color:var(--ag-primary);font-weight:700;
                   text-transform:uppercase;letter-spacing:0.8px;margin:0 0 10px">
             {text}
         </p>
@@ -536,7 +537,7 @@ def _render_form_group_label(text: str) -> None:
 
 def _render_form_divider() -> None:
     st.markdown(
-        "<hr style='margin:2px 0 14px;border:none;border-top:1px solid rgba(0,0,0,0.07)'>",
+        "<hr style='margin:2px 0 14px;border:none;border-top:1px solid rgba(var(--ag-shadow-rgb),0.07)'>",
         unsafe_allow_html=True,
     )
 
@@ -546,12 +547,12 @@ def _render_edit_form_css(container_key: str) -> None:
         f"""
         <style>
         div[class*="st-key-{container_key}"] {{
-            background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%);
-            border: 1px solid rgba(0,229,160,0.30);
-            border-top: 3px solid #00B884;
+            background: linear-gradient(160deg, var(--ag-bg-surface) 0%, var(--ag-bg-surface-alt) 100%);
+            border: 1px solid rgba(var(--ag-primary-bright-rgb),0.30);
+            border-top: 3px solid var(--ag-primary);
             border-radius: 14px;
             padding: 20px 22px 6px;
-            box-shadow: 0 0 24px rgba(0,229,160,0.08), 0 2px 10px rgba(0,0,0,0.04);
+            box-shadow: 0 0 24px rgba(var(--ag-primary-bright-rgb),0.08), 0 2px 10px rgba(var(--ag-shadow-rgb),0.04);
         }}
         div[class*="st-key-{container_key}"] [data-testid="stForm"] {{
             border: none;
@@ -560,7 +561,7 @@ def _render_edit_form_css(container_key: str) -> None:
         div[class*="st-key-{container_key}"] label p {{
             font-size: 12px !important;
             font-weight: 600 !important;
-            color: {COLORS['text_muted']} !important;
+            color: var(--ag-text-muted) !important;
         }}
         </style>
         """,

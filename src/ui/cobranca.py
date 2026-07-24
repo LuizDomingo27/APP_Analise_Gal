@@ -18,7 +18,9 @@ import streamlit as st
 
 logger = logging.getLogger(__name__)
 
-from src.config.settings import COLS, COLORS
+from src.config.settings import COLS
+
+from src.config.theme import accent_alpha, accent_color, theme_css_vars
 from src.services.charge_exporter import generate_charge_excel
 from src.data.database import DatabaseUnavailableError
 from src.data.cobranca_history import (
@@ -97,9 +99,9 @@ def _render_html_table(df_display: pd.DataFrame, height: int = 400) -> None:
     headers = list(df_display.columns)
     
     TH = (
-        "padding:11px 14px;text-align:center;color:#FFFFFF;font-weight:600;"
+        "padding:11px 14px;text-align:center;color:var(--ag-text-on-dark);font-weight:600;"
         "font-size:11px;text-transform:uppercase;letter-spacing:0.7px;"
-        "background:#00805C;border-bottom:2px solid #00B884;"
+        "background:var(--ag-primary-dark);border-bottom:2px solid var(--ag-primary);"
         "white-space:nowrap;position:sticky;top:0;z-index:1;"
     )
     TH_L = TH + "text-align:left;"
@@ -113,14 +115,14 @@ def _render_html_table(df_display: pd.DataFrame, height: int = 400) -> None:
         is_left = h in ("Fornecedor", "Remonte / Tipo de Defeito", "Remonte")
         align = "text-align:left;" if is_left else "text-align:center;"
         base_td = (
-            f"padding:9px 14px;font-size:12.5px;color:#0D1B17;"
-            f"border-bottom:1px solid rgba(0,229,160,0.12);"
+            f"padding:9px 14px;font-size:12.5px;color:var(--ag-text-primary);"
+            f"border-bottom:1px solid rgba(var(--ag-primary-bright-rgb),0.12);"
             f"{align}{row_bg}"
         )
         if h in ("Valor do Processo (R$)", "Valor (R$)"):
             return (
                 f'<td style="{base_td}">'
-                f'<span style="background:#00B884;color:#FFFFFF;'
+                f'<span style="background:var(--ag-primary);color:var(--ag-text-on-dark);'
                 f'padding:3px 9px;border-radius:6px;'
                 f'font-size:12px;font-weight:600;white-space:nowrap;">'
                 f'{val}</span></td>'
@@ -128,24 +130,24 @@ def _render_html_table(df_display: pd.DataFrame, height: int = 400) -> None:
         return f'<td style="{base_td}">{val}</td>'
 
     rows_html = "".join(
-        f"<tr>" + "".join(_make_cell(h, row[h], "background:#FFFFFF;" if i % 2 == 1 else "background:#F2F7F5;") for h in headers) + "</tr>"
+        f"<tr>" + "".join(_make_cell(h, row[h], "background:var(--ag-bg-surface);" if i % 2 == 1 else "background:var(--ag-bg-surface-alt);") for h in headers) + "</tr>"
         for i, (_, row) in enumerate(df_display.iterrows())
     )
 
     table_html = f"""
     <style>
       .nv-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
-      .nv-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
-      .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
-      .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
-      .nv-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
+      .nv-table-wrap::-webkit-scrollbar-track {{ background:var(--ag-bg-surface); border-radius:3px; }}
+      .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(var(--ag-primary-bright-rgb),0.45); border-radius:3px; }}
+      .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(var(--ag-primary-bright-rgb),0.70); }}
+      .nv-table-wrap tr:hover td {{ background:rgba(var(--ag-primary-bright-rgb),0.14)!important; transition:background 0.15s; }}
     </style>
     <div class="nv-table-wrap" style="
         max-height:{height}px; overflow:auto; border-radius:12px;
-        border:1px solid rgba(0,229,160,0.32);
-        border-top:2px solid #00B884;
-        background:#F2F7F5;
-        box-shadow:0 0 22px rgba(0,229,160,0.10);
+        border:1px solid rgba(var(--ag-primary-bright-rgb),0.32);
+        border-top:2px solid var(--ag-primary);
+        background:var(--ag-bg-surface-alt);
+        box-shadow:0 0 22px rgba(var(--ag-primary-bright-rgb),0.10);
     ">
       <table style="width:100%;border-collapse:collapse;min-width:980px;">
         <thead><tr>{head_html}</tr></thead>
@@ -173,8 +175,11 @@ def _show_preview_dialog(
     dias_para_vencer: int,
 ) -> None:
     """
-    Modal de pré-visualização — cores idênticas à tela Análise de Defeitos.
-    Gradiente escuro 1E1019→130C13, acento vermelho #E24B4A, borda roxo #00B884.
+    Modal de pré-visualização — mesmo visual dos cards da tela Análise de Defeitos.
+
+    As cores saem dos design tokens (src/config/theme.py); não repita valores
+    aqui. A descrição anterior — "gradiente escuro 1E1019→130C13, borda roxo" —
+    era resquício de um tema antigo e já não correspondia ao que a função pinta.
     """
     today_br = date.today().strftime("%d/%m/%Y")
     dias_texto, dias_accent = _dias_para_vencer_label(dias_para_vencer)
@@ -184,7 +189,7 @@ def _show_preview_dialog(
         """
         <style>
         /* Cabeçalho do dialog */
-        [data-testid="stDialogContent"] { background: #FAFCFB !important; }
+        [data-testid="stDialogContent"] { background: var(--ag-bg-app) !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -194,48 +199,48 @@ def _show_preview_dialog(
     st.markdown(
         f"""
         <div style="
-            background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%);
-            border: 1px solid rgba(226,75,74,0.32);
-            border-top: 3px solid #E24B4A;
+            background: linear-gradient(160deg, var(--ag-bg-surface) 0%, var(--ag-bg-surface-alt) 100%);
+            border: 1px solid rgba(var(--ag-danger-rgb),0.32);
+            border-top: 3px solid var(--ag-danger);
             border-radius: 12px;
             padding: 16px 20px 14px;
             margin-bottom: 14px;
-            box-shadow: 0 0 28px rgba(226,75,74,0.10), 0 2px 10px rgba(0,0,0,0.40);
+            box-shadow: 0 0 28px rgba(var(--ag-danger-rgb),0.10), 0 2px 10px rgba(var(--ag-shadow-rgb),0.40);
         ">
             <div style="display:flex; justify-content:space-between;
                         align-items:flex-start; flex-wrap:wrap; gap:10px;">
                 <div>
                     <div style="
-                        font-size:10px; color:#0D1B17;
+                        font-size:10px; color:var(--ag-text-primary);
                         text-transform:uppercase; letter-spacing:0.9px;
                         margin-bottom:5px; font-weight:600;
                     ">
-                        <span style="color:#E24B4A; margin-right:5px">✦</span>
+                        <span style="color:var(--ag-danger); margin-right:5px">✦</span>
                         AVISO DE COBRANÇA — DEFEITOS / REMONTES
                     </div>
-                    <div style="font-size:20px; font-weight:700; color:#0D1B17;
+                    <div style="font-size:20px; font-weight:700; color:var(--ag-text-primary);
                                 line-height:1.2; letter-spacing:-0.3px;">
                         {supplier}
                     </div>
-                    <div style="font-size:12px; color:#4A5752; margin-top:5px;">
+                    <div style="font-size:12px; color:var(--ag-text-muted); margin-top:5px;">
                         CNPJ:&nbsp;
                         <span style="
-                            color:#00805C; font-weight:700;
-                            background:rgba(0,229,160,0.12);
+                            color:var(--ag-primary-dark); font-weight:700;
+                            background:rgba(var(--ag-primary-bright-rgb),0.12);
                             padding:1px 8px; border-radius:4px;
-                            border:1px solid rgba(0,229,160,0.25);
+                            border:1px solid rgba(var(--ag-primary-bright-rgb),0.25);
                         ">{cnpj}</span>
                     </div>
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-size:9px; color:#4A5752; text-transform:uppercase;
+                    <div style="font-size:9px; color:var(--ag-text-muted); text-transform:uppercase;
                                 letter-spacing:0.6px; margin-bottom:3px;">Emissão</div>
-                    <div style="font-size:13px; color:#0D1B17; font-weight:600;">{today_br}</div>
+                    <div style="font-size:13px; color:var(--ag-text-primary); font-weight:600;">{today_br}</div>
                     <div style="
                         margin-top:6px;
-                        font-size:11px; color:#0D1B17;
-                        background:rgba(0,229,160,0.15);
-                        border:1px solid rgba(0,229,160,0.30);
+                        font-size:11px; color:var(--ag-text-primary);
+                        background:rgba(var(--ag-primary-bright-rgb),0.15);
+                        border:1px solid rgba(var(--ag-primary-bright-rgb),0.30);
                         padding:2px 10px; border-radius:20px;
                     ">Controle de Qualidade</div>
                 </div>
@@ -247,22 +252,22 @@ def _show_preview_dialog(
 
     # ── KPI cards — mesmo padrão de _render_summary_metrics ──────────────────
     c1, c2, c3 = st.columns(3)
-    _mini_kpi(c1, "✦ TOTAL A COBRAR",  f"R$ {total:,.2f}", "#E24B4A")
-    _mini_kpi(c2, "✦ REGISTROS",       str(n_records),      "#00B884")
-    _mini_kpi(c3, "✦ ORDENS (OM)",     str(n_orders),       "#00E5A0")
+    _mini_kpi(c1, "✦ TOTAL A COBRAR",  f"R$ {total:,.2f}", "danger")
+    _mini_kpi(c2, "✦ REGISTROS",       str(n_records),      "primary")
+    _mini_kpi(c3, "✦ ORDENS (OM)",     str(n_orders),       "primary-bright")
 
     # ── KPI cards — prazo da cobrança (data/vencimento/dias a vencer) ────────
     c4, c5, c6 = st.columns(3)
-    _mini_kpi(c4, "✦ DATA DA COBRANÇA",   data_cobranca.strftime("%d/%m/%Y"),   "#0EA5C7")
-    _mini_kpi(c5, "✦ VENCIMENTO (+20D)",  data_vencimento.strftime("%d/%m/%Y"), "#7C8985")
+    _mini_kpi(c4, "✦ DATA DA COBRANÇA",   data_cobranca.strftime("%d/%m/%Y"),   "info")
+    _mini_kpi(c5, "✦ VENCIMENTO (+20D)",  data_vencimento.strftime("%d/%m/%Y"), "text-subtle")
     _mini_kpi(c6, "✦ DIAS PARA VENCER",   dias_texto,                           dias_accent)
 
     # ── Label da tabela ───────────────────────────────────────────────────────
     st.markdown(
         """
-        <p style="font-size:10px; color:#0D1B17; text-transform:uppercase;
+        <p style="font-size:10px; color:var(--ag-text-primary); text-transform:uppercase;
                   letter-spacing:0.9px; margin:14px 0 5px; font-weight:600;">
-            <span style="color:#E24B4A; margin-right:5px">✦</span>
+            <span style="color:var(--ag-danger); margin-right:5px">✦</span>
             DETALHAMENTO DOS REGISTROS
         </p>
         """,
@@ -277,28 +282,28 @@ def _show_preview_dialog(
         f"""
         <div style="
             display:flex; justify-content:space-between; align-items:center;
-            background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%);
-            border: 1px solid rgba(226,75,74,0.35);
-            border-left: 3px solid #E24B4A;
+            background: linear-gradient(160deg, var(--ag-bg-surface) 0%, var(--ag-bg-surface-alt) 100%);
+            border: 1px solid rgba(var(--ag-danger-rgb),0.35);
+            border-left: 3px solid var(--ag-danger);
             border-radius: 8px;
             padding: 10px 18px;
             margin-top: 8px;
-            box-shadow: 0 0 16px rgba(226,75,74,0.08);
+            box-shadow: 0 0 16px rgba(var(--ag-danger-rgb),0.08);
         ">
-            <span style="font-size:12px; color:#4A5752; line-height:1.5;">
+            <span style="font-size:12px; color:var(--ag-text-muted); line-height:1.5;">
                 ⚠️&nbsp; Após confirmar, os registros serão removidos da planilha
                 ativa e salvos em&nbsp;
                 <code style="
-                    color:#00805C;
-                    background:rgba(0,229,160,0.18);
+                    color:var(--ag-primary-dark);
+                    background:rgba(var(--ag-primary-bright-rgb),0.18);
                     padding:1px 6px; border-radius:3px;
                     font-size:11px;
                 ">dataset/bd_cobranca.xlsx</code>
             </span>
             <span style="
-                font-size:20px; font-weight:700; color:#E24B4A;
+                font-size:20px; font-weight:700; color:var(--ag-danger);
                 white-space:nowrap; margin-left:18px;
-                text-shadow: 0 0 12px rgba(226,75,74,0.5);
+                text-shadow: 0 0 12px rgba(var(--ag-danger-rgb),0.5);
             ">
                 R$ {total:,.2f}
             </span>
@@ -329,16 +334,20 @@ def _show_preview_dialog(
 
 def _dias_para_vencer_label(dias_para_vencer: int) -> tuple[str, str]:
     """
-    Retorna (texto, cor) para o indicador de Dias para Vencer:
-      - negativo -> vencido (vermelho)
-      - zero     -> vence hoje (âmbar)
-      - positivo -> dias restantes (verde)
+    Retorna (texto, acento) para o indicador de Dias para Vencer.
+
+    O segundo item é o NOME de um token de acento (ver ACCENT_TOKENS em
+    src/config/theme.py), não uma cor: quem consome é o _mini_kpi, que deriva
+    dele as versões sólida e translúcidas.
+      - negativo -> vencido      -> "danger"
+      - zero     -> vence hoje   -> "warning"
+      - positivo -> dias restantes -> "primary-dark"
     """
     if dias_para_vencer < 0:
-        return f"Vencido há {abs(dias_para_vencer)} dia(s)", "#E24B4A"
+        return f"Vencido há {abs(dias_para_vencer)} dia(s)", "danger"
     if dias_para_vencer == 0:
-        return "Vence hoje", "#EF9F27"
-    return f"{dias_para_vencer} dia(s)", "#00805C"
+        return "Vence hoje", "warning"
+    return f"{dias_para_vencer} dia(s)", "primary-dark"
 
 
 def _render_charge_dates_input(supplier: str) -> tuple[date, date, int]:
@@ -352,7 +361,7 @@ def _render_charge_dates_input(supplier: str) -> tuple[date, date, int]:
     """
     st.markdown(
         f"""
-        <p style="font-size:11px;color:{COLORS['text_subtle']};
+        <p style="font-size:11px;color:var(--ag-text-subtle);
                   text-transform:uppercase;letter-spacing:0.7px;margin:16px 0 8px">
             📅 Prazo da Cobrança
         </p>
@@ -380,14 +389,14 @@ def _render_charge_dates_input(supplier: str) -> tuple[date, date, int]:
         st.markdown(
             f"""
             <div style="margin-top:1.8rem">
-              <span style="font-size:11px;color:{COLORS['text_subtle']};
+              <span style="font-size:11px;color:var(--ag-text-subtle);
                           text-transform:uppercase;letter-spacing:0.5px">
                   🔒 Data de Vencimento
               </span><br>
-              <span style="font-size:15px;font-weight:700;color:{COLORS['text_primary']}">
+              <span style="font-size:15px;font-weight:700;color:var(--ag-text-primary)">
                   {data_vencimento.strftime('%d/%m/%Y')}
               </span>
-              <span style="display:block;font-size:10px;color:{COLORS['text_subtle']};margin-top:1px">
+              <span style="display:block;font-size:10px;color:var(--ag-text-subtle);margin-top:1px">
                   Cobrança + 20 dias (automático)
               </span>
             </div>
@@ -399,7 +408,7 @@ def _render_charge_dates_input(supplier: str) -> tuple[date, date, int]:
         st.markdown(
             f"""
             <div style="margin-top:1.8rem">
-              <span style="font-size:11px;color:{COLORS['text_subtle']};
+              <span style="font-size:11px;color:var(--ag-text-subtle);
                           text-transform:uppercase;letter-spacing:0.5px">
                   ⏳ Dias para Vencer
               </span><br>
@@ -418,28 +427,34 @@ def _mini_kpi(col, label: str, value: str, accent: str) -> None:
     """
     Card KPI com gradiente e estilo idêntico a _render_summary_metrics
     (tela Análise de Defeitos).
+
+    `accent` é o NOME de um token de acento (ex.: "danger", "info"), não uma cor.
+    O card precisa de três formas da mesma cor — sólida, 32% e 10% — e derivá-las
+    aqui, a partir do nome, é o que mantém as três coerentes e sujeitas ao tema.
+    Ver ACCENT_TOKENS em src/config/theme.py para os nomes válidos.
     """
+    solido = accent_color(accent)
     with col:
         st.markdown(
             f"""
             <div style="
-                background: linear-gradient(160deg, #FFFFFF 0%, #F2F7F5 100%);
-                border: 1px solid {accent}52;
-                border-top: 2px solid {accent};
+                background: linear-gradient(160deg, var(--ag-bg-surface) 0%, var(--ag-bg-surface-alt) 100%);
+                border: 1px solid {accent_alpha(accent, 0.3216)};
+                border-top: 2px solid {solido};
                 border-radius: 12px;
                 padding: 0.9rem 1rem 0.8rem;
-                box-shadow: 0 0 20px {accent}1A, 0 2px 8px rgba(0,0,0,0.35);
+                box-shadow: 0 0 20px {accent_alpha(accent, 0.102)}, 0 2px 8px rgba(var(--ag-shadow-rgb),0.35);
                 text-align: center;
             ">
                 <div style="
-                    font-size:9px; color:#0D1B17;
+                    font-size:9px; color:var(--ag-text-primary);
                     text-transform:uppercase; letter-spacing:0.9px;
                     margin-bottom:6px; font-weight:600;
                 ">
-                    <span style="color:{accent}; margin-right:4px">✦</span>{label}
+                    <span style="color:{solido}; margin-right:4px">✦</span>{label}
                 </div>
                 <div style="
-                    font-size:19px; font-weight:700; color:#0D1B17;
+                    font-size:19px; font-weight:700; color:var(--ag-text-primary);
                     line-height:1.2; letter-spacing:-0.3px;
                     white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
                 ">
@@ -472,7 +487,7 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
     with col_info:
         st.markdown(
             f"""
-            <div style="margin-top:1.8rem;font-size:11px;color:{COLORS.get('text_subtle', '#7C8985')}">
+            <div style="margin-top:1.8rem;font-size:11px;color:var(--ag-text-subtle)">
                 🗃️ {len(df):,} registros na base
             </div>
             """,
@@ -510,7 +525,7 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     st.markdown(
-        f'<div style="border-top:1px solid {COLORS["border"]};margin-bottom:18px"></div>',
+        f'<div style="border-top:1px solid rgba(var(--ag-shadow-rgb),0.07);margin-bottom:18px"></div>',
         unsafe_allow_html=True,
     )
 
@@ -541,7 +556,7 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
 
     # ── Tabela de registros ───────────────────────────────────────────────────
     st.markdown(
-        f'<p style="font-size:12px;color:{COLORS["text_subtle"]}; '
+        f'<p style="font-size:12px;color:var(--ag-text-subtle); '
         f'text-transform:uppercase;letter-spacing:0.6px;margin:18px 0 6px">'
         f'📋 Registros de Defeito — {selected_supplier}</p>',
         unsafe_allow_html=True,
@@ -580,14 +595,14 @@ def render_cobranca_page(df: pd.DataFrame) -> None:
         f"""
         <div style="
             display:flex; justify-content:flex-end; align-items:center;
-            background:rgba(194,57,43,0.12);
-            border:1px solid rgba(194,57,43,0.35);
+            background:rgba(var(--ag-danger-dark-rgb),0.12);
+            border:1px solid rgba(var(--ag-danger-dark-rgb),0.35);
             border-radius:8px; padding:10px 18px; margin-top:8px;
         ">
-            <span style="font-size:13px;color:{COLORS['text_muted']};margin-right:12px">
+            <span style="font-size:13px;color:var(--ag-text-muted);margin-right:12px">
                 Total a Cobrar{' (dividido)' if split_active else ''}:
             </span>
-            <span style="font-size:18px;font-weight:700;color:#E74C3C">
+            <span style="font-size:18px;font-weight:700;color:var(--ag-danger-alt)">
                 R$ {charge_total:,.2f}
             </span>
         </div>
@@ -625,23 +640,23 @@ def _render_page_header(charge_threshold: float) -> None:
     st.markdown(
         f"""
         <div style="padding:0.5rem 0 1.2rem;
-                    border-bottom:1px solid rgba(0,0,0,0.06);
+                    border-bottom:1px solid rgba(var(--ag-shadow-rgb),0.06);
                     margin-bottom:1.4rem">
             <div style="display:flex;align-items:baseline;gap:12px">
                 <span style="font-size:26px;font-weight:700;
-                             color:{COLORS['text_primary']}">
+                             color:var(--ag-text-primary)">
                     💰 Cobrança de Fornecedores
                 </span>
-                <span style="font-size:12px;color:{COLORS['text_subtle']};
-                             background:rgba(0,229,160,0.18);
+                <span style="font-size:12px;color:var(--ag-text-subtle);
+                             background:rgba(var(--ag-primary-bright-rgb),0.18);
                              padding:3px 10px;border-radius:20px;
-                             border:1px solid rgba(0,229,160,0.3)">
+                             border:1px solid rgba(var(--ag-primary-bright-rgb),0.3)">
                     Gestão de Desconto
                 </span>
             </div>
-            <p style="color:{COLORS['text_muted']};font-size:13px;margin:5px 0 0">
+            <p style="color:var(--ag-text-muted);font-size:13px;margin:5px 0 0">
                 Fornecedores com valor total de desconto acima de
-                <strong style="color:{COLORS['text_primary']}">R$ {charge_threshold:,.2f}</strong>.
+                <strong style="color:var(--ag-text-primary)">R$ {charge_threshold:,.2f}</strong>.
             </p>
         </div>
         """,
@@ -665,7 +680,7 @@ def _render_reference_date_filter(df: pd.DataFrame) -> tuple[date, date]:
 
     st.markdown(
         f"""
-        <p style="font-size:11px;color:{COLORS['text_subtle']};
+        <p style="font-size:11px;color:var(--ag-text-subtle);
                   text-transform:uppercase;letter-spacing:0.7px;margin:0 0 8px">
             📅 Período de Referência da Cobrança — filtre de uma data até outra
         </p>
@@ -711,7 +726,7 @@ def _render_reference_date_filter(df: pd.DataFrame) -> tuple[date, date]:
         )
         st.markdown(
             f"""
-            <div style="margin-top:1.8rem;font-size:12px;color:{COLORS['text_subtle']}">
+            <div style="margin-top:1.8rem;font-size:12px;color:var(--ag-text-subtle)">
                 Apenas registros produzidos entre <strong>{period_label}</strong>
                 serão considerados. Ao lançar, somente os registros desse período
                 são removidos da planilha ativa e movidos para o histórico.
@@ -722,7 +737,7 @@ def _render_reference_date_filter(df: pd.DataFrame) -> tuple[date, date]:
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     st.markdown(
-        f'<div style="border-top:1px solid {COLORS["border"]};margin-bottom:18px"></div>',
+        f'<div style="border-top:1px solid rgba(var(--ag-shadow-rgb),0.07);margin-bottom:18px"></div>',
         unsafe_allow_html=True,
     )
 
@@ -743,10 +758,10 @@ def _render_no_records_for_date(date_start: date, date_end: date) -> None:
         ">
             <div style="font-size:48px; opacity:0.25">📭</div>
             <p style="font-size:18px; font-weight:600;
-                      color:{COLORS['text_primary']}; margin:0">
+                      color:var(--ag-text-primary); margin:0">
                 Nenhum registro para {period_label}
             </p>
-            <p style="font-size:13px; color:{COLORS['text_subtle']};
+            <p style="font-size:13px; color:var(--ag-text-subtle);
                       margin:0; max-width:380px; line-height:1.6">
                 Selecione outro Período de Referência acima para visualizar as
                 cobranças correspondentes.
@@ -766,10 +781,10 @@ def _render_no_charges(charge_threshold: float) -> None:
         ">
             <div style="font-size:48px; opacity:0.25">✅</div>
             <p style="font-size:20px; font-weight:600;
-                      color:{COLORS['text_primary']}; margin:0">
+                      color:var(--ag-text-primary); margin:0">
                 Nenhuma cobrança a realizar
             </p>
-            <p style="font-size:13px; color:{COLORS['text_subtle']};
+            <p style="font-size:13px; color:var(--ag-text-subtle);
                       margin:0; max-width:380px; line-height:1.6">
                 Nenhum fornecedor atingiu o limite de
                 <strong>R$ {charge_threshold:,.2f}</strong>
@@ -787,17 +802,17 @@ def _render_summary_metrics(above_threshold: pd.DataFrame) -> None:
     max_supplier = above_threshold.iloc[0][COLS["supplier"]]
     max_value    = above_threshold.iloc[0]["_total"]
 
-    _NV  = "#E24B4A"
-    _BG1 = "#FFFFFF"
-    _BG2 = "#F2F7F5"
+    _NV  = "var(--ag-danger)"
+    _BG1 = "var(--ag-bg-surface)"
+    _BG2 = "var(--ag-bg-surface-alt)"
 
     card_style = f"""
         background:linear-gradient(160deg,{_BG1} 0%,{_BG2} 100%);
-        border:1px solid rgba(226,75,74,0.32);
+        border:1px solid rgba(var(--ag-danger-rgb),0.32);
         border-top:2px solid {_NV};
         border-radius:12px;
         padding:1.1rem 1.2rem 1rem;
-        box-shadow:0 0 22px rgba(226,75,74,0.10), 0 2px 8px rgba(0,0,0,0.35);
+        box-shadow:0 0 22px rgba(var(--ag-danger-rgb),0.10), 0 2px 8px rgba(var(--ag-shadow-rgb),0.35);
     """
 
     c1, c2, c3 = st.columns(3)
@@ -811,17 +826,17 @@ def _render_summary_metrics(above_threshold: pd.DataFrame) -> None:
             st.markdown(
                 f"""
                 <div style="{card_style}">
-                    <div style="font-size:10px;color:#0D1B17;
+                    <div style="font-size:10px;color:var(--ag-text-primary);
                                 text-transform:uppercase;letter-spacing:0.9px;
                                 margin-bottom:8px;font-weight:600">
                         <span style="color:{_NV};margin-right:5px">✦</span>{label}
                     </div>
-                    <div style="font-size:20px;font-weight:700;color:#0D1B17;
+                    <div style="font-size:20px;font-weight:700;color:var(--ag-text-primary);
                                 line-height:1.2;letter-spacing:-0.3px;
                                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                         {value}
                     </div>
-                    <div style="font-size:11px;color:#4A5752;margin-top:5px">{sub}</div>
+                    <div style="font-size:11px;color:var(--ag-text-muted);margin-top:5px">{sub}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -832,27 +847,27 @@ def _render_supplier_badge(supplier: str, total: float) -> None:
     st.markdown(
         f"""
         <div style="
-            background:rgba(0,229,160,0.10);
-            border:1px solid rgba(0,229,160,0.28);
+            background:rgba(var(--ag-primary-bright-rgb),0.10);
+            border:1px solid rgba(var(--ag-primary-bright-rgb),0.28);
             border-radius:10px;
             padding:10px 16px;
             display:flex; gap:24px; flex-wrap:wrap;
             margin-bottom:6px; margin-top:4px;
         ">
             <div>
-                <span style="font-size:10px;color:{COLORS['text_subtle']};
+                <span style="font-size:10px;color:var(--ag-text-subtle);
                              text-transform:uppercase;letter-spacing:0.5px">
                     Fornecedor
                 </span><br>
                 <span style="font-size:13px;font-weight:600;
-                             color:{COLORS['text_primary']}">{supplier}</span>
+                             color:var(--ag-text-primary)">{supplier}</span>
             </div>
             <div>
-                <span style="font-size:10px;color:{COLORS['text_subtle']};
+                <span style="font-size:10px;color:var(--ag-text-subtle);
                              text-transform:uppercase;letter-spacing:0.5px">
                     Total a Cobrar
                 </span><br>
-                <span style="font-size:14px;font-weight:700;color:#E74C3C">
+                <span style="font-size:14px;font-weight:700;color:var(--ag-danger-alt)">
                     R$ {total:,.2f}
                 </span>
             </div>
@@ -868,12 +883,12 @@ def _render_cnpj_input(supplier: str) -> tuple[bool, str]:
         <div style="
             margin:16px 0 10px;
             padding:12px 16px 4px;
-            background:rgba(0,229,160,0.06);
-            border:1px solid rgba(0,229,160,0.20);
-            border-left:3px solid {COLORS['primary']};
+            background:rgba(var(--ag-primary-bright-rgb),0.06);
+            border:1px solid rgba(var(--ag-primary-bright-rgb),0.20);
+            border-left:3px solid var(--ag-primary);
             border-radius:8px;
         ">
-            <p style="font-size:11px;color:{COLORS['text_subtle']};
+            <p style="font-size:11px;color:var(--ag-text-subtle);
                       text-transform:uppercase;letter-spacing:0.7px;margin:0 0 8px">
                 🔐 CNPJ do Fornecedor — obrigatório para lançamento
             </p>
@@ -901,10 +916,10 @@ def _render_cnpj_input(supplier: str) -> tuple[bool, str]:
             st.markdown(
                 """
                 <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;
-                    background:rgba(239,159,39,0.08);border:1px solid rgba(239,159,39,0.28);
+                    background:rgba(var(--ag-warning-rgb),0.08);border:1px solid rgba(var(--ag-warning-rgb),0.28);
                     border-radius:7px;margin-top:2px;">
                     <span style="font-size:15px">⚠️</span>
-                    <span style="font-size:12px;color:#EF9F27;font-weight:500">
+                    <span style="font-size:12px;color:var(--ag-warning);font-weight:500">
                         CNPJ não informado — lançamento bloqueado.
                     </span>
                 </div>
@@ -917,10 +932,10 @@ def _render_cnpj_input(supplier: str) -> tuple[bool, str]:
             st.markdown(
                 f"""
                 <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;
-                    background:rgba(0,229,160,0.10);border:1px solid rgba(0,229,160,0.30);
+                    background:rgba(var(--ag-primary-bright-rgb),0.10);border:1px solid rgba(var(--ag-primary-bright-rgb),0.30);
                     border-radius:7px;margin-top:2px;">
                     <span style="font-size:15px">✅</span>
-                    <span style="font-size:12px;color:#00805C;font-weight:600">
+                    <span style="font-size:12px;color:var(--ag-primary-dark);font-weight:600">
                         CNPJ válido: {cnpj_formatted}
                     </span>
                 </div>
@@ -931,10 +946,10 @@ def _render_cnpj_input(supplier: str) -> tuple[bool, str]:
             st.markdown(
                 """
                 <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;
-                    background:rgba(226,75,74,0.10);border:1px solid rgba(226,75,74,0.30);
+                    background:rgba(var(--ag-danger-rgb),0.10);border:1px solid rgba(var(--ag-danger-rgb),0.30);
                     border-radius:7px;margin-top:2px;">
                     <span style="font-size:15px">❌</span>
-                    <span style="font-size:12px;color:#E24B4A;font-weight:500">
+                    <span style="font-size:12px;color:var(--ag-danger);font-weight:500">
                         CNPJ inválido — verifique o número informado.
                     </span>
                 </div>
@@ -986,12 +1001,12 @@ def _render_split_input(supplier: str, total: float) -> tuple[bool, float]:
     with col_resume:
         st.markdown(
             f"""
-            <div style="margin-top:1.8rem;font-size:12px;color:{COLORS['text_muted']}">
+            <div style="margin-top:1.8rem;font-size:12px;color:var(--ag-text-muted)">
                 Fornecedor será cobrado:
-                <strong style="color:#E74C3C">R$ {valor_fornecedor:,.2f}</strong>
+                <strong style="color:var(--ag-danger-alt)">R$ {valor_fornecedor:,.2f}</strong>
                 ({100 - perc_empresa:.0f}%) &nbsp;·&nbsp;
                 Empresa absorve:
-                <strong style="color:#0F86A3">R$ {valor_empresa:,.2f}</strong>
+                <strong style="color:var(--ag-accent-blue)">R$ {valor_empresa:,.2f}</strong>
                 ({perc_empresa:.0f}%)
             </div>
             """,
@@ -1124,20 +1139,20 @@ def _render_charge_button(
         st.markdown(
             f"""
             <div style="
-                background:rgba(0,229,160,0.12);
-                border:1px solid rgba(0,229,160,0.35);
+                background:rgba(var(--ag-primary-bright-rgb),0.12);
+                border:1px solid rgba(var(--ag-primary-bright-rgb),0.35);
                 border-radius:10px; padding:14px 18px;
             ">
-                <span style="font-size:14px;font-weight:600;color:#00805C">
+                <span style="font-size:14px;font-weight:600;color:var(--ag-primary-dark)">
                     ✅ Cobrança lançada com sucesso
                 </span>
-                <p style="font-size:12px;color:{COLORS['text_muted']};margin:4px 0 0">
+                <p style="font-size:12px;color:var(--ag-text-muted);margin:4px 0 0">
                     Fornecedor: <strong>{supplier}</strong> —
                     Período de Referência: <strong>{period_label}</strong> —
                     Emitida em: {launched_at} —
-                    Código: <code style="color:#534AB7;font-weight:700">{cod_lancamento}</code> —
+                    Código: <code style="color:var(--ag-accent-purple);font-weight:700">{cod_lancamento}</code> —
                     Registros removidos da planilha ativa e salvos em
-                    <code style="color:#0D1B17">dataset/bd_cobranca.xlsx</code>
+                    <code style="color:var(--ag-text-primary)">dataset/bd_cobranca.xlsx</code>
                 </p>
             </div>
             """,
@@ -1166,6 +1181,7 @@ def _render_charge_button(
 <head>
 <meta charset="utf-8">
 <style>
+{theme_css_vars()}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
     background: transparent;
@@ -1176,13 +1192,13 @@ def _render_charge_button(
     width: 100%; height: 38px; border-radius: 8px; cursor: pointer;
     font-size: 12.5px; font-weight: 500;
     transition: all .15s ease;
-    background: rgba(0,229,160,0.15);
-    color:#00805C;
-    border: 1px solid rgba(0,229,160,0.35);
+    background: rgba(var(--ag-primary-bright-rgb),0.15);
+    color:var(--ag-primary-dark);
+    border: 1px solid rgba(var(--ag-primary-bright-rgb),0.35);
   }}
   .btn:hover {{
-    background: rgba(0,229,160,0.28);
-    border-color: rgba(0,229,160,0.6);
+    background: rgba(var(--ag-primary-bright-rgb),0.28);
+    border-color: rgba(var(--ag-primary-bright-rgb),0.6);
   }}
   .btn:active {{ transform: scale(0.98); }}
 </style>
@@ -1238,16 +1254,16 @@ def _render_charge_button(
             f"""
             <div style="
                 display:flex; align-items:center; gap:12px;
-                background:rgba(239,159,39,0.07);
-                border:1px solid rgba(239,159,39,0.22);
+                background:rgba(var(--ag-warning-rgb),0.07);
+                border:1px solid rgba(var(--ag-warning-rgb),0.22);
                 border-radius:10px; padding:14px 18px;
             ">
                 <span style="font-size:22px">🔒</span>
                 <div>
-                    <p style="font-size:13px;color:#EF9F27;font-weight:600;margin:0">
+                    <p style="font-size:13px;color:var(--ag-warning);font-weight:600;margin:0">
                         Lançamento bloqueado
                     </p>
-                    <p style="font-size:12px;color:{COLORS['text_muted']};margin:3px 0 0">
+                    <p style="font-size:12px;color:var(--ag-text-muted);margin:3px 0 0">
                         Informe e valide o CNPJ acima para liberar os botões de ação.
                     </p>
                 </div>
@@ -1312,6 +1328,7 @@ def _render_charge_button(
 <head>
 <meta charset="utf-8">
 <style>
+{theme_css_vars()}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
     background: transparent;
@@ -1322,13 +1339,13 @@ def _render_charge_button(
     width: 100%; height: 38px; border-radius: 8px; cursor: pointer;
     font-size: 12px; font-weight: 500;
     transition: all .15s ease;
-    background: rgba(0,229,160,0.15);
-    color:#00805C;
-    border: 1px solid rgba(0,229,160,0.35);
+    background: rgba(var(--ag-primary-bright-rgb),0.15);
+    color:var(--ag-primary-dark);
+    border: 1px solid rgba(var(--ag-primary-bright-rgb),0.35);
   }}
   .btn:hover {{
-    background: rgba(0,229,160,0.28);
-    border-color: rgba(0,229,160,0.6);
+    background: rgba(var(--ag-primary-bright-rgb),0.28);
+    border-color: rgba(var(--ag-primary-bright-rgb),0.6);
   }}
   .btn:active {{ transform: scale(0.98); }}
 </style>
@@ -1365,11 +1382,11 @@ def _render_charge_button(
     with col_info:
         st.markdown(
             f"""
-            <div style="padding:8px 0;font-size:11px;color:{COLORS['text_muted']}">
-                Fornecedor: <strong style="color:{COLORS['text_primary']}">{supplier}</strong> ·
-                CNPJ: <strong style="color:{COLORS['teal']}">{cnpj}</strong> ·
-                <strong style="color:#E74C3C">R$ {total:,.2f}</strong>
-                <span style="display:block;font-size:9.5px;color:#4A5752;margin-top:2px">
+            <div style="padding:8px 0;font-size:11px;color:var(--ag-text-muted)">
+                Fornecedor: <strong style="color:var(--ag-text-primary)">{supplier}</strong> ·
+                CNPJ: <strong style="color:var(--ag-primary-bright)">{cnpj}</strong> ·
+                <strong style="color:var(--ag-danger-alt)">R$ {total:,.2f}</strong>
+                <span style="display:block;font-size:9.5px;color:var(--ag-text-muted);margin-top:2px">
                     Use Pré-visualizar ou Prévia / Imprimir para revisar.
                 </span>
             </div>

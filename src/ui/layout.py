@@ -15,9 +15,11 @@ from src.data.processor import DataProcessor
 logger = logging.getLogger(__name__)
 from src.charts import builder
 from src.charts.render import echart
+from src.config.theme import theme_css_vars
 from src.ui.preview import _generate_html
 from src.services.exporter import get_xlsx_bytes
-from src.config.settings import COLS, COLORS, DEFECT_COLORS
+from src.config.settings import COLS, DEFECT_COLORS
+
 
 
 # ── Section heading ───────────────────────────────────────────────────────────
@@ -27,8 +29,8 @@ def _section(title: str, icon: str = "📊") -> None:
         f"""
         <div style="display:flex;align-items:center;gap:10px;margin:2rem 0 0.7rem">
             <span style="font-size:18px">{icon}</span>
-            <span style="font-size:15px;font-weight:600;color:{COLORS['text_primary']}">{title}</span>
-            <div style="flex:1;height:1px;background:rgba(0,0,0,0.07);margin-left:6px"></div>
+            <span style="font-size:15px;font-weight:600;color:var(--ag-text-primary)">{title}</span>
+            <div style="flex:1;height:1px;background:rgba(var(--ag-shadow-rgb),0.07);margin-left:6px"></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -37,7 +39,7 @@ def _section(title: str, icon: str = "📊") -> None:
 
 def _chart_label(text: str) -> None:
     st.markdown(
-        f'<p style="font-size:12px;color:{COLORS["text_muted"]};'
+        f'<p style="font-size:12px;color:var(--ag-text-muted);'
         f'font-weight:500;margin:0 0 4px">{text}</p>',
         unsafe_allow_html=True,
     )
@@ -46,7 +48,7 @@ def _chart_label(text: str) -> None:
 def _defect_legend() -> None:
     items = "".join(
         f'<span style="display:flex;align-items:center;gap:5px;'
-        f'font-size:11px;color:{COLORS["text_muted"]}">'
+        f'font-size:11px;color:var(--ag-text-muted)">'
         f'<span style="width:9px;height:9px;border-radius:2px;'
         f'background:{color};display:inline-block"></span>'
         f'{label}</span>'
@@ -63,17 +65,17 @@ def _defect_legend() -> None:
 _VAR_TABLE_CSS = """
 <style>
   .nv-var-wrap::-webkit-scrollbar { width:6px; height:6px; }
-  .nv-var-wrap::-webkit-scrollbar-track { background:#FFFFFF; border-radius:3px; }
-  .nv-var-wrap::-webkit-scrollbar-thumb { background:rgba(0,229,160,0.45); border-radius:3px; }
-  .nv-var-wrap::-webkit-scrollbar-thumb:hover { background:rgba(0,229,160,0.70); }
-  .nv-var-wrap tr:hover td { background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }
+  .nv-var-wrap::-webkit-scrollbar-track { background:var(--ag-bg-surface); border-radius:3px; }
+  .nv-var-wrap::-webkit-scrollbar-thumb { background:rgba(var(--ag-primary-bright-rgb),0.45); border-radius:3px; }
+  .nv-var-wrap::-webkit-scrollbar-thumb:hover { background:rgba(var(--ag-primary-bright-rgb),0.70); }
+  .nv-var-wrap tr:hover td { background:rgba(var(--ag-primary-bright-rgb),0.14)!important; transition:background 0.15s; }
 </style>
 """
 
 _VAR_TH = (
-    "padding:11px 14px;text-align:center;color:#FFFFFF;font-weight:600;"
+    "padding:11px 14px;text-align:center;color:var(--ag-text-on-dark);font-weight:600;"
     "font-size:10px;text-transform:uppercase;letter-spacing:0.9px;"
-    "background:#00805C;border-bottom:1px solid rgba(0,229,160,0.35);"
+    "background:var(--ag-primary-dark);border-bottom:1px solid rgba(var(--ag-primary-bright-rgb),0.35);"
     "white-space:nowrap;position:sticky;top:0;z-index:1;"
 )
 _VAR_TH_L = _VAR_TH + "text-align:left;"
@@ -86,14 +88,14 @@ def _trend_html(val: float, invert: bool = False) -> str:
     """
     import math
     if val is None or (isinstance(val, float) and math.isnan(val)):
-        return '<span style="color:#7C8985;font-weight:600;">—</span>'
+        return '<span style="color:var(--ag-text-subtle);font-weight:600;">—</span>'
     if abs(val) < 0.01:
-        return '<span style="color:#7C8985;font-weight:600;">→</span>'
+        return '<span style="color:var(--ag-text-subtle);font-weight:600;">→</span>'
     if val > 0:
-        color = "#E24B4A" if not invert else "#00805C"
+        color = "var(--ag-danger)" if not invert else "var(--ag-primary-dark)"
         arrow = "↑"
     else:
-        color = "#00805C" if not invert else "#E24B4A"
+        color = "var(--ag-primary-dark)" if not invert else "var(--ag-danger)"
         arrow = "↓"
     return f'<span style="color:{color};font-weight:700;font-size:14px;">{arrow}</span>'
 
@@ -102,8 +104,8 @@ def _var_badge(val: float, fmt: str = "+.2f", prefix: str = "", suffix: str = ""
     """Badge colorido para valor de variação."""
     import math
     if val is None or (isinstance(val, float) and math.isnan(val)):
-        return '<span style="color:#7C8985;">—</span>'
-    color = "#E24B4A" if val > 0 else "#00805C" if val < 0 else "#7C8985"
+        return '<span style="color:var(--ag-text-subtle);">—</span>'
+    color = "var(--ag-danger)" if val > 0 else "var(--ag-primary-dark)" if val < 0 else "var(--ag-text-subtle)"
     formatted = f"{val:{fmt}}"
     if val > 0:
         formatted = f"+{formatted}" if not formatted.startswith("+") else formatted
@@ -116,7 +118,7 @@ def _var_badge(val: float, fmt: str = "+.2f", prefix: str = "", suffix: str = ""
 def _wrap_table(head_html: str, rows_html: str, max_height: str = "400px", max_width: str = "100%") -> str:
     """Envolve cabeçalho + linhas no container padrão."""
     return f"""{_VAR_TABLE_CSS}
-<div class="nv-var-wrap" style="max-width:{max_width}; max-height:{max_height}; overflow:auto; border-radius:12px; border:1px solid rgba(0,229,160,0.32); border-top:2px solid #00B884; background:#F2F7F5; box-shadow:0 0 22px rgba(0,229,160,0.10);">
+<div class="nv-var-wrap" style="max-width:{max_width}; max-height:{max_height}; overflow:auto; border-radius:12px; border:1px solid rgba(var(--ag-primary-bright-rgb),0.32); border-top:2px solid var(--ag-primary); background:var(--ag-bg-surface-alt); box-shadow:0 0 22px rgba(var(--ag-primary-bright-rgb),0.10);">
   <table style="width:100%;border-collapse:collapse;min-width:300px;">
     <thead><tr>{head_html}</tr></thead>
     <tbody>{rows_html}</tbody>
@@ -127,14 +129,14 @@ def _wrap_table(head_html: str, rows_html: str, max_height: str = "400px", max_w
 
 def _td(val: str, row_bg: str, align: str = "center") -> str:
     return (
-        f'<td style="padding:9px 14px;font-size:12.5px;color:#0D1B17;'
-        f'border-bottom:1px solid rgba(0,229,160,0.12);'
+        f'<td style="padding:9px 14px;font-size:12.5px;color:var(--ag-text-primary);'
+        f'border-bottom:1px solid rgba(var(--ag-primary-bright-rgb),0.12);'
         f'text-align:{align};{row_bg}">{val}</td>'
     )
 
 
 def _row_bg(i: int) -> str:
-    return "background:rgba(0,229,160,0.07);" if i % 2 == 1 else "background:#F2F7F5;"
+    return "background:rgba(var(--ag-primary-bright-rgb),0.07);" if i % 2 == 1 else "background:var(--ag-bg-surface-alt);"
 
 
 # ── Tabela 1: Variação por fornecedor ─────────────────────────────────────────
@@ -192,7 +194,7 @@ def _render_variation_table_remonte(df: pd.DataFrame) -> None:
         cells = (
             _td(f'<strong>{row["Período"]}</strong>', bg)
             + _td(f'{int(row["Total Remontes"]):,}', bg)
-            + _td(_var_badge(var_val, fmt=".2f", suffix="%") if var_val is not None else '<span style="color:#7C8985;">—</span>', bg)
+            + _td(_var_badge(var_val, fmt=".2f", suffix="%") if var_val is not None else '<span style="color:var(--ag-text-subtle);">—</span>', bg)
             + _td(_trend_html(var_val), bg)
         )
         rows_html += f"<tr>{cells}</tr>"
@@ -226,11 +228,11 @@ def _render_variation_table_cost(df: pd.DataFrame) -> None:
             + _td(f'R$ {float(row["Valor Total (R$)"]):,.2f}', bg)
             + _td(
                 _var_badge(var_r, fmt=",.2f", prefix="R$ ") if var_r is not None
-                else '<span style="color:#7C8985;">—</span>', bg
+                else '<span style="color:var(--ag-text-subtle);">—</span>', bg
             )
             + _td(
                 _var_badge(var_p, fmt=".2f", suffix="%") if var_p is not None
-                else '<span style="color:#7C8985;">—</span>', bg
+                else '<span style="color:var(--ag-text-subtle);">—</span>', bg
             )
             + _td(_trend_html(var_r), bg)
         )
@@ -363,6 +365,7 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
 <head>
 <meta charset="UTF-8">
 <style>
+{theme_css_vars()}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
     background: transparent;
@@ -374,7 +377,7 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
     gap: 12px; flex-wrap: wrap;
   }}
   .info-text {{
-    font-size: 12px; color: #4A5752;
+    font-size: 12px; color: var(--ag-text-muted);
     flex: 1; min-width: 200px;
   }}
   .action-btns {{
@@ -386,29 +389,29 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
     font-size: 12.5px; font-weight: 600; letter-spacing: 0.4px;
     white-space: nowrap; text-decoration: none;
     transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
-    line-height: 1; color: #0D1B17;
+    line-height: 1; color: var(--ag-text-primary);
   }}
   .abtn-print {{
-    background: #F2F7F5;
-    border: 1px solid rgba(0,229,160,0.50);
-    box-shadow: 0 0 14px rgba(0,229,160,0.12);
+    background: var(--ag-bg-surface-alt);
+    border: 1px solid rgba(var(--ag-primary-bright-rgb),0.50);
+    box-shadow: 0 0 14px rgba(var(--ag-primary-bright-rgb),0.12);
   }}
   .abtn-print:hover {{
-    background: rgba(0,229,160,0.20);
-    border-color: rgba(0,229,160,0.80);
-    box-shadow: 0 0 20px rgba(0,229,160,0.28);
+    background: rgba(var(--ag-primary-bright-rgb),0.20);
+    border-color: rgba(var(--ag-primary-bright-rgb),0.80);
+    box-shadow: 0 0 20px rgba(var(--ag-primary-bright-rgb),0.28);
     transform: translateY(-1px);
   }}
   .abtn-save {{
-    background: rgba(0,229,160,0.22);
-    border: 1px solid rgba(0,229,160,0.55);
-    box-shadow: 0 0 14px rgba(0,229,160,0.18);
-    color: #0D1B17;
+    background: rgba(var(--ag-primary-bright-rgb),0.22);
+    border: 1px solid rgba(var(--ag-primary-bright-rgb),0.55);
+    box-shadow: 0 0 14px rgba(var(--ag-primary-bright-rgb),0.18);
+    color: var(--ag-text-primary);
   }}
   .abtn-save:hover {{
-    background: rgba(0,229,160,0.35);
-    border-color:#0D1B17;
-    box-shadow: 0 0 24px rgba(0,229,160,0.38);
+    background: rgba(var(--ag-primary-bright-rgb),0.35);
+    border-color:var(--ag-border-strong);
+    box-shadow: 0 0 24px rgba(var(--ag-primary-bright-rgb),0.38);
     transform: translateY(-1px);
   }}
   .abtn:active {{ transform: translateY(0); }}
@@ -480,9 +483,9 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
         thr_mins = float(display[COLS["minutes"]].quantile(0.75))
 
         TH = (
-            "padding:11px 14px;text-align:center;color:#0D1B17;font-weight:600;"
-            "font-size:10px;color:#FFFFFF;text-transform:uppercase;letter-spacing:0.9px;"
-            "background:#00805C;border-bottom:1px solid rgba(0,229,160,0.35);"
+            "padding:11px 14px;text-align:center;color:var(--ag-text-primary);font-weight:600;"
+            "font-size:10px;color:var(--ag-text-on-dark);text-transform:uppercase;letter-spacing:0.9px;"
+            "background:var(--ag-primary-dark);border-bottom:1px solid rgba(var(--ag-primary-bright-rgb),0.35);"
             "white-space:nowrap;position:sticky;top:0;z-index:1;"
         )
         TH_L = TH + "text-align:left;"
@@ -513,9 +516,9 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
         rows_html = ""
         for i, (_, row) in enumerate(display.iterrows()):
             row_bg = (
-                "background:rgba(0,229,160,0.07);"
+                "background:rgba(var(--ag-primary-bright-rgb),0.07);"
                 if i % 2 == 1
-                else "background:#F2F7F5;"
+                else "background:var(--ag-bg-surface-alt);"
             )
             cells = ""
             for key in col_keys:
@@ -523,18 +526,18 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
                 is_left = key == COLS["supplier"]
                 align   = "text-align:left;" if is_left else "text-align:center;"
                 base_td = (
-                    f"padding:9px 14px;font-size:12.5px;color:#0D1B17;"
-                    f"border-bottom:1px solid rgba(0,229,160,0.12);"
+                    f"padding:9px 14px;font-size:12.5px;color:var(--ag-text-primary);"
+                    f"border-bottom:1px solid rgba(var(--ag-primary-bright-rgb),0.12);"
                     f"{align}{row_bg}"
                 )
 
                 if key == COLS["value_brl"]:
                     fval = _to_float(val)
                     if fval is None:
-                        cells += f'<td style="{base_td};color:#4A5752;">—</td>'
+                        cells += f'<td style="{base_td};color:var(--ag-text-muted);">—</td>'
                     else:
-                        badge_bg = "rgba(0,229,160,0.28)" if fval > thr_val else "rgba(0,229,160,0.10)"
-                        badge_cl = "#0D1B17" if fval > thr_val else "#4A5752"
+                        badge_bg = "rgba(var(--ag-primary-bright-rgb),0.28)" if fval > thr_val else "rgba(var(--ag-primary-bright-rgb),0.10)"
+                        badge_cl = "var(--ag-text-primary)" if fval > thr_val else "var(--ag-text-muted)"
                         cells += (
                             f'<td style="{base_td}">'
                             f'<span style="background:{badge_bg};color:{badge_cl};'
@@ -545,18 +548,18 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
                 elif key == COLS["pct_remonte"]:
                     fval = _to_float(val)
                     txt  = "—" if fval is None else f"{fval:.2f}%"
-                    cells += f'<td style="{base_td};color:#4A5752;">{txt}</td>'
+                    cells += f'<td style="{base_td};color:var(--ag-text-muted);">{txt}</td>'
                 elif key == COLS["quantity"]:
                     ival = _to_int(val)
                     if ival is None:
-                        cells += f'<td style="{base_td};color:#4A5752;">—</td>'
+                        cells += f'<td style="{base_td};color:var(--ag-text-muted);">—</td>'
                     else:
                         weight = "font-weight:600;" if ival > thr_qty else ""
                         cells += f'<td style="{base_td}{weight}">{ival:,}</td>'
                 elif key == COLS["minutes"]:
                     fval = _to_float(val)
                     if fval is None:
-                        cells += f'<td style="{base_td};color:#4A5752;">—</td>'
+                        cells += f'<td style="{base_td};color:var(--ag-text-muted);">—</td>'
                     else:
                         weight = "font-weight:600;" if fval > thr_mins else ""
                         cells += f'<td style="{base_td}{weight}">{fval:,.2f}</td>'
@@ -567,9 +570,9 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
                 elif key == COLS["order"]:
                     ival = _to_int(val)
                     txt  = "—" if ival is None else f"{ival}"
-                    cells += f'<td style="{base_td};color:#4A5752;">{txt}</td>'
+                    cells += f'<td style="{base_td};color:var(--ag-text-muted);">{txt}</td>'
                 elif key == COLS["date"]:
-                    cells += f'<td style="{base_td};color:#4A5752;">{val}</td>'
+                    cells += f'<td style="{base_td};color:var(--ag-text-muted);">{val}</td>'
                 else:
                     cells += f'<td style="{base_td}">{val}</td>'
 
@@ -578,17 +581,17 @@ def _render_table(processor: DataProcessor, full_df: pd.DataFrame) -> None:
         table_html = f"""
         <style>
           .nv-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
-          .nv-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
-          .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
-          .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
-          .nv-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
+          .nv-table-wrap::-webkit-scrollbar-track {{ background:var(--ag-bg-surface); border-radius:3px; }}
+          .nv-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(var(--ag-primary-bright-rgb),0.45); border-radius:3px; }}
+          .nv-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(var(--ag-primary-bright-rgb),0.70); }}
+          .nv-table-wrap tr:hover td {{ background:rgba(var(--ag-primary-bright-rgb),0.14)!important; transition:background 0.15s; }}
         </style>
         <div class="nv-table-wrap" style="
             max-height:460px; overflow:auto; border-radius:12px;
-            border:1px solid rgba(0,229,160,0.32);
-            border-top:2px solid #00B884;
-            background:#F2F7F5;
-            box-shadow:0 0 22px rgba(0,229,160,0.10);
+            border:1px solid rgba(var(--ag-primary-bright-rgb),0.32);
+            border-top:2px solid var(--ag-primary);
+            background:var(--ag-bg-surface-alt);
+            box-shadow:0 0 22px rgba(var(--ag-primary-bright-rgb),0.10);
         ">
           <table style="width:100%;border-collapse:collapse;min-width:980px;">
             <thead><tr>{head_html}</tr></thead>

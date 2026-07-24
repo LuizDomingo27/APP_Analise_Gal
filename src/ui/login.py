@@ -33,8 +33,8 @@ def _inject_login_css() -> None:
         /* Esconde a navegação/barra lateral enquanto não está logado */
         [data-testid="stSidebar"], [data-testid="stSidebarNav"],
         [data-testid="collapsedControl"] { display: none !important; }
-        [data-testid="stAppViewContainer"] > .main { background: #FAFCFB; }
-        [data-testid="stMain"]   { background: #FAFCFB; }
+        [data-testid="stAppViewContainer"] > .main { background: var(--ag-bg-app); }
+        [data-testid="stMain"]   { background: var(--ag-bg-app); }
         [data-testid="stHeader"] { background: transparent !important; }
         /* Largura enxuta, padrão de formulário de login (não ocupa a tela toda) */
         .main .block-container {
@@ -49,14 +49,14 @@ def _inject_login_css() -> None:
             width: 100% !important;
             max-width: 400px !important;
             margin: 8px auto 0 !important;
-            background: #FFFFFF;
-            border: 1px solid rgba(0,184,132,0.22);
-            border-top: 4px solid #00B884;
+            background: var(--ag-bg-surface);
+            border: 1px solid rgba(var(--ag-primary-rgb),0.22);
+            border-top: 4px solid var(--ag-primary);
             border-radius: 16px;
             padding: 26px 26px 22px;
-            box-shadow: 0 18px 48px rgba(13,27,23,0.10),
-                        0 0 0 1px rgba(0,229,160,0.05),
-                        0 2px 8px rgba(0,0,0,0.03);
+            box-shadow: 0 18px 48px rgba(var(--ag-text-primary-rgb),0.10),
+                        0 0 0 1px rgba(var(--ag-primary-bright-rgb),0.05),
+                        0 2px 8px rgba(var(--ag-shadow-rgb),0.03);
         }
         /* Rodapé/mensagens acompanham a mesma largura do cartão */
         .main .block-container { padding-top: 2.4rem; }
@@ -64,60 +64,60 @@ def _inject_login_css() -> None:
         /* Inputs padrão (borda verde da identidade) */
         .stTextInput input, .stSelectbox [data-baseweb="select"] > div,
         [data-baseweb="input"], [data-baseweb="select"] {
-            background: #FFFFFF !important;
-            color: #0D1B17 !important;
-            border: 1px solid rgba(0,184,132,0.35) !important;
+            background: var(--ag-bg-surface) !important;
+            color: var(--ag-text-primary) !important;
+            border: 1px solid rgba(var(--ag-primary-rgb),0.35) !important;
             border-radius: 8px !important;
         }
         .stTextInput input:hover,
         .stSelectbox [data-baseweb="select"] > div:hover {
-            border-color:#0D1B17 !important;
-            box-shadow: 0 0 0 2px rgba(0,229,160,0.15) !important;
+            border-color:var(--ag-border-strong) !important;
+            box-shadow: 0 0 0 2px rgba(var(--ag-primary-bright-rgb),0.15) !important;
         }
         .stTextInput input:focus {
-            border-color:#0D1B17 !important;
-            box-shadow: 0 0 0 2px rgba(0,229,160,0.25) !important;
+            border-color:var(--ag-border-strong) !important;
+            box-shadow: 0 0 0 2px rgba(var(--ag-primary-bright-rgb),0.25) !important;
             outline: none !important;
         }
         [data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"] {
-            background: #FFFFFF !important; color: #0D1B17 !important;
-            border: 1px solid rgba(0,184,132,0.25) !important;
+            background: var(--ag-bg-surface) !important; color: var(--ag-text-primary) !important;
+            border: 1px solid rgba(var(--ag-primary-rgb),0.25) !important;
         }
-        [data-baseweb="menu"] li, [role="option"] { color:#0D1B17 !important; background:#FFFFFF !important; }
+        [data-baseweb="menu"] li, [role="option"] { color:var(--ag-text-primary) !important; background:var(--ag-bg-surface) !important; }
         [data-baseweb="menu"] li:hover, [role="option"]:hover,
-        [role="option"][aria-selected="true"] { background: rgba(0,229,160,0.15) !important; color:#0D1B17 !important; }
-        [data-baseweb="select"] svg, [data-baseweb="input"] svg { fill:#00B884 !important; }
+        [role="option"][aria-selected="true"] { background: rgba(var(--ag-primary-bright-rgb),0.15) !important; color:var(--ag-text-primary) !important; }
+        [data-baseweb="select"] svg, [data-baseweb="input"] svg { fill:var(--ag-primary) !important; }
         .stTextInput label p, .stSelectbox label p {
-            font-size: 12.5px !important; font-weight: 600 !important; color:#4A5752 !important;
+            font-size: 12.5px !important; font-weight: 600 !important; color:var(--ag-text-muted) !important;
         }
 
         /* Abas centralizadas */
-        .stTabs [data-baseweb="tab-list"] { gap: 4px; justify-content: center; border-bottom: 1px solid rgba(0,184,132,0.18); }
-        .stTabs [data-baseweb="tab"] { color:#4A5752 !important; font-size:13.5px !important; font-weight:600 !important; }
-        .stTabs [data-baseweb="tab"][aria-selected="true"] { color:#00805C !important; }
-        .stTabs [data-baseweb="tab-highlight"] { background:#00B884 !important; }
+        .stTabs [data-baseweb="tab-list"] { gap: 4px; justify-content: center; border-bottom: 1px solid rgba(var(--ag-primary-rgb),0.18); }
+        .stTabs [data-baseweb="tab"] { color:var(--ag-text-muted) !important; font-size:13.5px !important; font-weight:600 !important; }
+        .stTabs [data-baseweb="tab"][aria-selected="true"] { color:var(--ag-primary-dark) !important; }
+        .stTabs [data-baseweb="tab-highlight"] { background:var(--ag-primary) !important; }
 
         /* Botões primários */
         .stButton > button, .stFormSubmitButton > button {
-            background: #FFFFFF !important; color:#0D1B17 !important;
-            border: 1px solid #00B884 !important; border-radius: 8px !important;
+            background: var(--ag-bg-surface) !important; color:var(--ag-text-primary) !important;
+            border: 1px solid var(--ag-primary) !important; border-radius: 8px !important;
             font-size: 13px !important; font-weight: 600 !important;
             transition: all 0.18s ease !important;
         }
         .stButton > button:hover, .stFormSubmitButton > button:hover {
-            background: rgba(0,229,160,0.18) !important; color:#00805C !important; border-color:#0D1B17 !important;
+            background: rgba(var(--ag-primary-bright-rgb),0.18) !important; color:var(--ag-primary-dark) !important; border-color:var(--ag-border-strong) !important;
         }
         .stFormSubmitButton > button[kind="primaryFormSubmit"],
         .stButton > button[kind="primary"] {
-            background: linear-gradient(135deg,#00C994,#00B884) !important;
-            color:#FFFFFF !important; border:1px solid rgba(0,184,132,0.6) !important;
+            background: linear-gradient(135deg,var(--ag-primary-grad-from),var(--ag-primary)) !important;
+            color:var(--ag-text-on-dark) !important; border:1px solid rgba(var(--ag-primary-rgb),0.6) !important;
             font-weight: 700 !important;
         }
         .stFormSubmitButton > button[kind="primaryFormSubmit"]:hover,
         .stButton > button[kind="primary"]:hover {
-            background: linear-gradient(135deg,#00B884,#00A578) !important; color:#FFFFFF !important;
+            background: linear-gradient(135deg,var(--ag-primary),var(--ag-primary-grad-to)) !important; color:var(--ag-text-on-dark) !important;
         }
-        [data-testid="stAlert"] { color:#0D1B17 !important; border-radius: 10px !important; }
+        [data-testid="stAlert"] { color:var(--ag-text-primary) !important; border-radius: 10px !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -131,14 +131,14 @@ def _render_brand() -> None:
             <div style="
                 width:60px; height:60px; margin:0 auto 12px;
                 border-radius:16px;
-                background:linear-gradient(135deg,#00E5A0,#00B884);
+                background:linear-gradient(135deg,var(--ag-primary-bright),var(--ag-primary));
                 display:flex; align-items:center; justify-content:center;
-                font-size:30px; box-shadow:0 8px 22px rgba(0,184,132,0.35);
+                font-size:30px; box-shadow:0 8px 22px rgba(var(--ag-primary-rgb),0.35);
             ">🔍</div>
-            <div style="font-size:22px; font-weight:800; color:#0D1B17; letter-spacing:-0.3px">
+            <div style="font-size:22px; font-weight:800; color:var(--ag-text-primary); letter-spacing:-0.3px">
                 Análise de Defeitos
             </div>
-            <div style="font-size:12.5px; color:#7C8985; margin-top:3px">
+            <div style="font-size:12.5px; color:var(--ag-text-subtle); margin-top:3px">
                 Controle de Qualidade · Acesso restrito
             </div>
         </div>
@@ -179,8 +179,8 @@ def _render_signup_tab() -> None:
     is_first = auth_db.count_users() == 0
     if is_first:
         st.markdown(
-            "<div style='font-size:12px;color:#00805C;background:rgba(0,229,160,0.10);"
-            "border:1px solid rgba(0,229,160,0.25);border-radius:8px;padding:8px 10px;"
+            "<div style='font-size:12px;color:var(--ag-primary-dark);background:rgba(var(--ag-primary-bright-rgb),0.10);"
+            "border:1px solid rgba(var(--ag-primary-bright-rgb),0.25);border-radius:8px;padding:8px 10px;"
             "margin-bottom:10px'>⭐ Este será o primeiro usuário e receberá acesso de "
             "<b>administrador</b>.</div>",
             unsafe_allow_html=True,
@@ -252,7 +252,7 @@ def _render_reset_tab() -> None:
     if question and st.session_state.get("reset_username") == auth_db.normalize_username(username):
         with st.form("form_reset", border=False):
             st.markdown(
-                f"<div style='font-size:12.5px;color:#4A5752;margin-bottom:6px'>"
+                f"<div style='font-size:12.5px;color:var(--ag-text-muted);margin-bottom:6px'>"
                 f"🛡️ <b>{question}</b></div>",
                 unsafe_allow_html=True,
             )
@@ -304,7 +304,7 @@ def render_login_screen() -> None:
         st.error(f"⚠️ {exc}")
 
     st.markdown(
-        "<div style='text-align:center;margin-top:16px;font-size:11px;color:#7C8985'>"
+        "<div style='text-align:center;margin-top:16px;font-size:11px;color:var(--ag-text-subtle)'>"
         "🔒 Suas credenciais são protegidas com hash PBKDF2 + salt.</div>",
         unsafe_allow_html=True,
     )

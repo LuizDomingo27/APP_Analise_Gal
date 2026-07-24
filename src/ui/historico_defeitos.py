@@ -27,7 +27,9 @@ import streamlit.components.v1 as components
 from src.auth.session import is_admin
 from src.charts import builder
 from src.charts.render import echart
-from src.config.settings import COLS, COLORS
+from src.config.theme import theme_css_vars
+from src.config.settings import COLS
+
 from src.data.historico_defeitos import (
     append_historico,
     get_supplier_counts,
@@ -96,14 +98,14 @@ def render_historico_page() -> None:
 def _render_header() -> None:
     st.markdown(
         f"""
-        <div style="padding:0.5rem 0 1.2rem;border-bottom:1px solid rgba(0,0,0,0.06);margin-bottom:1.4rem">
+        <div style="padding:0.5rem 0 1.2rem;border-bottom:1px solid rgba(var(--ag-shadow-rgb),0.06);margin-bottom:1.4rem">
             <div style="display:flex;align-items:baseline;gap:12px">
-                <span style="font-size:26px;font-weight:700;color:{COLORS['text_primary']}">
+                <span style="font-size:26px;font-weight:700;color:var(--ag-text-primary)">
                     🗂️ Histórico de Defeitos
                 </span>
-                <span style="font-size:12px;color:{COLORS['text_subtle']};
-                             background:rgba(0,229,160,0.18);padding:3px 10px;
-                             border-radius:20px;border:1px solid rgba(0,229,160,0.3)">
+                <span style="font-size:12px;color:var(--ag-text-subtle);
+                             background:rgba(var(--ag-primary-bright-rgb),0.18);padding:3px 10px;
+                             border-radius:20px;border:1px solid rgba(var(--ag-primary-bright-rgb),0.3)">
                     Registro Permanente
                 </span>
             </div>
@@ -120,7 +122,7 @@ def _render_header() -> None:
 def _render_upload_section() -> None:
     with st.expander("➕ Importar registros do dia para o histórico", expanded=False):
         st.markdown(
-            f"<p style='font-size:12.5px;color:{COLORS['text_muted']};margin:0 0 10px;line-height:1.6'>"
+            f"<p style='font-size:12.5px;color:var(--ag-text-muted);margin:0 0 10px;line-height:1.6'>"
             "Selecione a planilha do dia (.xlsx). Os registros são adicionados ao "
             "histórico permanente. Datas já presentes são ignoradas automaticamente "
             "para evitar duplicação — <strong>nada é apagado</strong>.</p>",
@@ -178,7 +180,7 @@ def _render_filters(df: pd.DataFrame) -> pd.DataFrame:
     """Selectbox de oficina + período. Retorna o DataFrame filtrado."""
     st.markdown(
         f"<p style='font-size:11px;text-transform:uppercase;letter-spacing:1px;"
-        f"color:{COLORS['text_muted']};margin:0 0 8px'>⚙️ Filtros</p>",
+        f"color:var(--ag-text-muted);margin:0 0 8px'>⚙️ Filtros</p>",
         unsafe_allow_html=True,
     )
 
@@ -268,7 +270,7 @@ def _render_export_bar(
     """
     st.markdown(
         f"<p style='font-size:13.5px;font-weight:500;margin:0 0 8px;"
-        f"color:{COLORS['text_primary']}'>📤 Exportar</p>",
+        f"color:var(--ag-text-primary)'>📤 Exportar</p>",
         unsafe_allow_html=True,
     )
 
@@ -333,6 +335,7 @@ def _render_export_bar(
 <head>
 <meta charset="UTF-8">
 <style>
+{theme_css_vars()}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{
     background: transparent;
@@ -345,28 +348,28 @@ def _render_export_bar(
     font-size: 12.5px; font-weight: 600; letter-spacing: 0.4px;
     white-space: nowrap; text-decoration: none;
     transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
-    line-height: 1; color: #0D1B17; font-family: inherit;
+    line-height: 1; color: var(--ag-text-primary); font-family: inherit;
   }}
   .abtn-print {{
-    background: #F2F7F5;
-    border: 1px solid rgba(0,229,160,0.50);
-    box-shadow: 0 0 14px rgba(0,229,160,0.12);
+    background: var(--ag-bg-surface-alt);
+    border: 1px solid rgba(var(--ag-primary-bright-rgb),0.50);
+    box-shadow: 0 0 14px rgba(var(--ag-primary-bright-rgb),0.12);
   }}
   .abtn-print:hover {{
-    background: rgba(0,229,160,0.20);
-    border-color: rgba(0,229,160,0.80);
-    box-shadow: 0 0 20px rgba(0,229,160,0.28);
+    background: rgba(var(--ag-primary-bright-rgb),0.20);
+    border-color: rgba(var(--ag-primary-bright-rgb),0.80);
+    box-shadow: 0 0 20px rgba(var(--ag-primary-bright-rgb),0.28);
     transform: translateY(-1px);
   }}
   .abtn-save {{
-    background: rgba(0,229,160,0.22);
-    border: 1px solid rgba(0,229,160,0.55);
-    box-shadow: 0 0 14px rgba(0,229,160,0.18);
+    background: rgba(var(--ag-primary-bright-rgb),0.22);
+    border: 1px solid rgba(var(--ag-primary-bright-rgb),0.55);
+    box-shadow: 0 0 14px rgba(var(--ag-primary-bright-rgb),0.18);
   }}
   .abtn-save:hover {{
-    background: rgba(0,229,160,0.35);
-    border-color: #0D1B17;
-    box-shadow: 0 0 24px rgba(0,229,160,0.38);
+    background: rgba(var(--ag-primary-bright-rgb),0.35);
+    border-color: var(--ag-border-strong);
+    box-shadow: 0 0 24px rgba(var(--ag-primary-bright-rgb),0.38);
     transform: translateY(-1px);
   }}
   .abtn:active {{ transform: translateY(0); }}
@@ -492,7 +495,7 @@ def _render_supplier_range_dialog(df: pd.DataFrame) -> None:
     amigável — nunca derruba a página.
     """
     st.markdown(
-        f"<p style='font-size:12.5px;color:{COLORS['text_muted']};margin:0 0 12px;line-height:1.6'>"
+        f"<p style='font-size:12.5px;color:var(--ag-text-muted);margin:0 0 12px;line-height:1.6'>"
         "Escolha a métrica e o intervalo. São listados os fornecedores de "
         "<strong>todo o histórico</strong> cujo total cai dentro da faixa, "
         "agrupados por fornecedor.</p>",
@@ -561,7 +564,7 @@ def _render_supplier_range_dialog(df: pd.DataFrame) -> None:
         return
 
     st.markdown(
-        f"<p style='font-size:12px;color:{COLORS['text_muted']};margin:0 0 6px'>"
+        f"<p style='font-size:12px;color:var(--ag-text-muted);margin:0 0 6px'>"
         f"✦ {len(result):,} fornecedor(es) na faixa selecionada.</p>",
         unsafe_allow_html=True,
     )
@@ -621,6 +624,7 @@ def _render_range_pdf_button(
 <head>
 <meta charset="UTF-8">
 <style>
+{theme_css_vars()}
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{ background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
   .abtn {{
@@ -628,15 +632,15 @@ def _render_range_pdf_button(
     padding: 9px 16px; border-radius: 10px; cursor: pointer;
     font-size: 12.5px; font-weight: 600; letter-spacing: 0.4px;
     white-space: nowrap; text-decoration: none; line-height: 1;
-    color: #0D1B17; font-family: inherit;
-    background: rgba(0,229,160,0.22);
-    border: 1px solid rgba(0,229,160,0.55);
-    box-shadow: 0 0 14px rgba(0,229,160,0.18);
+    color: var(--ag-text-primary); font-family: inherit;
+    background: rgba(var(--ag-primary-bright-rgb),0.22);
+    border: 1px solid rgba(var(--ag-primary-bright-rgb),0.55);
+    box-shadow: 0 0 14px rgba(var(--ag-primary-bright-rgb),0.18);
     transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
   }}
   .abtn:hover {{
-    background: rgba(0,229,160,0.35); border-color: #0D1B17;
-    box-shadow: 0 0 24px rgba(0,229,160,0.38); transform: translateY(-1px);
+    background: rgba(var(--ag-primary-bright-rgb),0.35); border-color: var(--ag-border-strong);
+    box-shadow: 0 0 24px rgba(var(--ag-primary-bright-rgb),0.38); transform: translateY(-1px);
   }}
   .abtn:active {{ transform: translateY(0); }}
 </style>
@@ -677,7 +681,7 @@ def _render_range_pdf_button(
 def _render_supplier_edit_form() -> None:
     _section("Correção de Nome de Oficina", "✏️")
     st.markdown(
-        f"<p style='font-size:12.5px;color:{COLORS['text_muted']};margin:0 0 14px;line-height:1.6'>"
+        f"<p style='font-size:12.5px;color:var(--ag-text-muted);margin:0 0 14px;line-height:1.6'>"
         "Pesquise o nome do fornecedor que precisa de correção (ex.: acento ou "
         "grafia diferente) e grave o nome correto. A correção é aplicada a "
         "<strong>todos</strong> os registros do histórico com aquele nome. "
@@ -760,10 +764,10 @@ def _render_no_data_message() -> None:
         <div style="display:flex;flex-direction:column;align-items:center;
                     justify-content:center;min-height:40vh;text-align:center;gap:10px">
             <div style="font-size:36px;opacity:0.18">🗂️</div>
-            <p style="font-size:15px;font-weight:600;color:{COLORS['text_primary']};margin:0">
+            <p style="font-size:15px;font-weight:600;color:var(--ag-text-primary);margin:0">
                 Histórico ainda vazio
             </p>
-            <p style="font-size:13px;color:{COLORS['text_subtle']};margin:0;max-width:360px;line-height:1.6">
+            <p style="font-size:13px;color:var(--ag-text-subtle);margin:0;max-width:360px;line-height:1.6">
                 {descricao}
             </p>
         </div>
@@ -781,8 +785,8 @@ def _section(title: str, icon: str = "📊") -> None:
         f"""
         <div style="display:flex;align-items:center;gap:10px;margin:2rem 0 0.7rem">
             <span style="font-size:18px">{icon}</span>
-            <span style="font-size:15px;font-weight:600;color:{COLORS['text_primary']}">{title}</span>
-            <div style="flex:1;height:1px;background:rgba(0,0,0,0.07);margin-left:6px"></div>
+            <span style="font-size:15px;font-weight:600;color:var(--ag-text-primary)">{title}</span>
+            <div style="flex:1;height:1px;background:rgba(var(--ag-shadow-rgb),0.07);margin-left:6px"></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -791,7 +795,7 @@ def _section(title: str, icon: str = "📊") -> None:
 
 def _chart_label(text: str) -> None:
     st.markdown(
-        f'<p style="font-size:12px;color:{COLORS["text_muted"]};'
+        f'<p style="font-size:12px;color:var(--ag-text-muted);'
         f'font-weight:500;margin:0 0 4px">{text}</p>',
         unsafe_allow_html=True,
     )
@@ -802,7 +806,7 @@ def _defect_legend() -> None:
 
     items = "".join(
         f'<span style="display:flex;align-items:center;gap:5px;'
-        f'font-size:11px;color:{COLORS["text_muted"]}">'
+        f'font-size:11px;color:var(--ag-text-muted)">'
         f'<span style="width:9px;height:9px;border-radius:2px;'
         f'background:{color};display:inline-block"></span>{label}</span>'
         for label, color in DEFECT_COLORS.items()

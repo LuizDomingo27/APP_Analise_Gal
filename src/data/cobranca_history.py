@@ -186,7 +186,7 @@ def situacao_badge_html(status: str, data_vencimento, data_pagamento) -> str:
         return f'<span class="badge-status status-contestado">⚠️ Vencido há {abs(dias)}d</span>'
     if dias == 0:
         return '<span class="badge-status status-pendente">⏳ Vence hoje</span>'
-    return f'<span style="color:#00805C;font-weight:600">{dias} dia(s)</span>'
+    return f'<span style="color:var(--ag-primary-dark);font-weight:600">{dias} dia(s)</span>'
 
 
 def group_charges(
