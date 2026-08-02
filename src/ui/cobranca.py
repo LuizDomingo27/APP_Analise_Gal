@@ -377,11 +377,18 @@ def _render_charge_dates_input(supplier: str) -> tuple[date, date, int]:
             value=date.today(),
             format="DD/MM/YYYY",
             key=f"data_cobranca_{supplier}",
-            help="Data em que a cobrança está sendo realizada junto ao fornecedor. "
-                 "O vencimento é calculado automaticamente (+20 dias).",
+            help="Data em que a cobrança está sendo realizada junto ao fornecedor. ",
+            width=250
         )
 
-    data_vencimento  = data_cobranca + timedelta(days=20)
+        # DIAS_VENCER nova regra de cobrança, O vencimento é calculado automaticamente
+        # (+10 dias) mas o usuário pode informar um valor diferente para fins de informação.
+    
+        #DIAS_VENCER = st.number_input("Selecione os Dias para Vencer", value=10,
+        # step=1, key=f"dias_vencer_{supplier}",
+        # help="Este campo é calculado automaticamente de acordo com a sua escolha.",width=150)
+    
+    data_vencimento  = data_cobranca + timedelta(days=10)
     dias_para_vencer = (data_vencimento - date.today()).days
     dias_texto, dias_accent = _dias_para_vencer_label(dias_para_vencer)
 
@@ -395,9 +402,6 @@ def _render_charge_dates_input(supplier: str) -> tuple[date, date, int]:
               </span><br>
               <span style="font-size:15px;font-weight:700;color:var(--ag-text-primary)">
                   {data_vencimento.strftime('%d/%m/%Y')}
-              </span>
-              <span style="display:block;font-size:10px;color:var(--ag-text-subtle);margin-top:1px">
-                  Cobrança + 20 dias (automático)
               </span>
             </div>
             """,
