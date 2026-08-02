@@ -17,7 +17,7 @@ def render_filters(df: pd.DataFrame) -> pd.DataFrame:
     """
     st.markdown(
         '<p style="font-size:11px;text-transform:uppercase;letter-spacing:1px;'
-        'color:#4A5752;margin:0 0 8px">⚙️ Filtros</p>',
+        'color:var(--ag-text-muted);margin:0 0 8px">⚙️ Filtros</p>',
         unsafe_allow_html=True,
     )
 

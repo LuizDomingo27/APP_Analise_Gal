@@ -25,7 +25,8 @@ import pandas as pd
 import streamlit as st
 
 from src.auth.session import is_admin
-from src.config.settings import COLS, COLORS
+from src.config.settings import COLS
+
 from src.data.defeitos_imagens import (
     carregar_catalogo,
     excluir_imagem,
@@ -62,14 +63,14 @@ def render_defeitos_imagens_page() -> None:
 def _render_header() -> None:
     st.markdown(
         f"""
-        <div style="padding:0.5rem 0 1.2rem;border-bottom:1px solid rgba(0,0,0,0.06);margin-bottom:1.4rem">
+        <div style="padding:0.5rem 0 1.2rem;border-bottom:1px solid rgba(var(--ag-shadow-rgb),0.06);margin-bottom:1.4rem">
             <div style="display:flex;align-items:baseline;gap:12px">
-                <span style="font-size:26px;font-weight:700;color:{COLORS['text_primary']}">
+                <span style="font-size:26px;font-weight:700;color:var(--ag-text-primary)">
                     🖼️ Imagens de Defeitos
                 </span>
-                <span style="font-size:12px;color:{COLORS['text_subtle']};
-                             background:rgba(0,229,160,0.18);padding:3px 10px;
-                             border-radius:20px;border:1px solid rgba(0,229,160,0.3)">
+                <span style="font-size:12px;color:var(--ag-text-subtle);
+                             background:rgba(var(--ag-primary-bright-rgb),0.18);padding:3px 10px;
+                             border-radius:20px;border:1px solid rgba(var(--ag-primary-bright-rgb),0.3)">
                     Catálogo Visual
                 </span>
             </div>
@@ -86,7 +87,7 @@ def _render_header() -> None:
 def _render_cadastro_section() -> None:
     with st.expander("➕ Cadastrar / substituir imagem de defeito", expanded=False):
         st.markdown(
-            f"<p style='font-size:12.5px;color:{COLORS['text_muted']};margin:0 0 12px;line-height:1.6'>"
+            f"<p style='font-size:12.5px;color:var(--ag-text-muted);margin:0 0 12px;line-height:1.6'>"
             "Envie a imagem e informe o <strong>nome do defeito</strong> (o mesmo que "
             "aparece na coluna de defeito dos registros, ex.: <em>Ponto Estourado</em>). "
             "A associação ignora acentos, espaços e o prefixo <em>img</em> do arquivo — "
@@ -141,7 +142,7 @@ def _render_catalogo_admin() -> None:
     catalogo = carregar_catalogo()
     st.markdown(
         f"<p style='font-size:12px;text-transform:uppercase;letter-spacing:1px;"
-        f"color:{COLORS['text_muted']};margin:14px 0 8px'>Imagens cadastradas</p>",
+        f"color:var(--ag-text-muted);margin:14px 0 8px'>Imagens cadastradas</p>",
         unsafe_allow_html=True,
     )
 
@@ -154,7 +155,7 @@ def _render_catalogo_admin() -> None:
         with col_nome:
             st.markdown(
                 f"<div style='padding-top:6px'><strong>{item['nome']}</strong><br>"
-                f"<span style='font-size:11px;color:{COLORS['text_subtle']}'>{item['chave']}</span></div>",
+                f"<span style='font-size:11px;color:var(--ag-text-subtle)'>{item['chave']}</span></div>",
                 unsafe_allow_html=True,
             )
         with col_del:
@@ -181,7 +182,7 @@ def _load_fonte(fonte: str) -> pd.DataFrame | None:
 def _render_consulta_section() -> None:
     st.markdown(
         f"<p style='font-size:11px;text-transform:uppercase;letter-spacing:1px;"
-        f"color:{COLORS['text_muted']};margin:1.5rem 0 8px'>🔎 Consulta por oficina</p>",
+        f"color:var(--ag-text-muted);margin:1.5rem 0 8px'>🔎 Consulta por oficina</p>",
         unsafe_allow_html=True,
     )
 
@@ -256,8 +257,8 @@ def _render_tabela_estilizada(tabela: pd.DataFrame) -> None:
 
     TH = (
         "padding:11px 14px;text-align:center;font-weight:600;"
-        "font-size:10px;color:#FFFFFF;text-transform:uppercase;letter-spacing:0.9px;"
-        "background:#00805C;border-bottom:1px solid rgba(0,229,160,0.35);"
+        "font-size:10px;color:var(--ag-text-on-dark);text-transform:uppercase;letter-spacing:0.9px;"
+        "background:var(--ag-primary-dark);border-bottom:1px solid rgba(var(--ag-primary-bright-rgb),0.35);"
         "white-space:nowrap;position:sticky;top:0;z-index:1;"
     )
     TH_L = TH + "text-align:left;"
@@ -276,13 +277,13 @@ def _render_tabela_estilizada(tabela: pd.DataFrame) -> None:
     rows_html = ""
     for i, (_, row) in enumerate(tabela.iterrows()):
         row_bg = (
-            "background:rgba(0,229,160,0.07);"
+            "background:rgba(var(--ag-primary-bright-rgb),0.07);"
             if i % 2 == 1
-            else "background:#F2F7F5;"
+            else "background:var(--ag-bg-surface-alt);"
         )
         base_td = (
-            "padding:9px 14px;font-size:12.5px;color:#0D1B17;"
-            "border-bottom:1px solid rgba(0,229,160,0.12);"
+            "padding:9px 14px;font-size:12.5px;color:var(--ag-text-primary);"
+            "border-bottom:1px solid rgba(var(--ag-primary-bright-rgb),0.12);"
         )
         try:
             qtd = int(row["Qtd. Defeitos"])
@@ -293,7 +294,7 @@ def _render_tabela_estilizada(tabela: pd.DataFrame) -> None:
 
         rows_html += (
             "<tr>"
-            f'<td style="{base_td}text-align:center;color:#4A5752;{row_bg}">{row["OM"]}</td>'
+            f'<td style="{base_td}text-align:center;color:var(--ag-text-muted);{row_bg}">{row["OM"]}</td>'
             f'<td style="{base_td}text-align:left;{row_bg}">{row["Oficina"]}</td>'
             f'<td style="{base_td}text-align:center;{peso}{row_bg}">{qtd_txt}</td>'
             f'<td style="{base_td}text-align:left;{row_bg}">{row["Defeito"]}</td>'
@@ -303,17 +304,17 @@ def _render_tabela_estilizada(tabela: pd.DataFrame) -> None:
     table_html = f"""
     <style>
       .di-table-wrap::-webkit-scrollbar {{ width:6px; height:6px; }}
-      .di-table-wrap::-webkit-scrollbar-track {{ background:#FFFFFF; border-radius:3px; }}
-      .di-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(0,229,160,0.45); border-radius:3px; }}
-      .di-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(0,229,160,0.70); }}
-      .di-table-wrap tr:hover td {{ background:rgba(0,229,160,0.14)!important; transition:background 0.15s; }}
+      .di-table-wrap::-webkit-scrollbar-track {{ background:var(--ag-bg-surface); border-radius:3px; }}
+      .di-table-wrap::-webkit-scrollbar-thumb {{ background:rgba(var(--ag-primary-bright-rgb),0.45); border-radius:3px; }}
+      .di-table-wrap::-webkit-scrollbar-thumb:hover {{ background:rgba(var(--ag-primary-bright-rgb),0.70); }}
+      .di-table-wrap tr:hover td {{ background:rgba(var(--ag-primary-bright-rgb),0.14)!important; transition:background 0.15s; }}
     </style>
     <div class="di-table-wrap" style="
         max-height:460px; overflow:auto; border-radius:12px;
-        border:1px solid rgba(0,229,160,0.32);
-        border-top:2px solid #00B884;
-        background:#F2F7F5;
-        box-shadow:0 0 22px rgba(0,229,160,0.10);
+        border:1px solid rgba(var(--ag-primary-bright-rgb),0.32);
+        border-top:2px solid var(--ag-primary);
+        background:var(--ag-bg-surface-alt);
+        box-shadow:0 0 22px rgba(var(--ag-primary-bright-rgb),0.10);
     ">
       <table style="width:100%;border-collapse:collapse;min-width:560px;">
         <thead><tr>{head_html}</tr></thead>
@@ -353,16 +354,16 @@ def _render_principais_defeitos(sel: pd.DataFrame, oficina: str) -> None:
         f"""
         <div style="display:flex;align-items:center;gap:10px;margin:2rem 0 0.3rem">
             <span style="font-size:18px">🎯</span>
-            <span style="font-size:15px;font-weight:600;color:{COLORS['text_primary']}">
+            <span style="font-size:15px;font-weight:600;color:var(--ag-text-primary)">
                 Principais Defeitos — prioridade de correção
             </span>
-            <div style="flex:1;height:1px;background:rgba(0,0,0,0.07);margin-left:6px"></div>
+            <div style="flex:1;height:1px;background:rgba(var(--ag-shadow-rgb),0.07);margin-left:6px"></div>
         </div>
         """,
         unsafe_allow_html=True,
     )
     st.markdown(
-        f"<p style='font-size:12.5px;color:{COLORS['text_muted']};margin:0 0 14px;line-height:1.6'>"
+        f"<p style='font-size:12.5px;color:var(--ag-text-muted);margin:0 0 14px;line-height:1.6'>"
         f"Os {len(top)} defeito(s) mais frequentes de <strong>{oficina}</strong>, pela soma da "
         "quantidade de peças. Comece pelo <strong>1º</strong> — é o que mais impacta.</p>",
         unsafe_allow_html=True,
@@ -378,18 +379,18 @@ def _render_principais_defeitos(sel: pd.DataFrame, oficina: str) -> None:
         destaque = i == 0
         with cols[i]:
             borda = (
-                "border:2px solid rgba(0,184,132,0.55);box-shadow:0 0 16px rgba(0,229,160,0.18)"
+                "border:2px solid rgba(var(--ag-primary-rgb),0.55);box-shadow:0 0 16px rgba(var(--ag-primary-bright-rgb),0.18)"
                 if destaque
-                else "border:1px solid rgba(0,0,0,0.08)"
+                else "border:1px solid rgba(var(--ag-shadow-rgb),0.08)"
             )
             st.markdown(
                 f"""
                 <div style="{borda};border-radius:12px;padding:10px 12px 4px;margin-bottom:6px">
                     <div style="display:flex;align-items:baseline;gap:8px">
                         <span style="font-size:20px">{medalha}</span>
-                        <span style="font-size:14px;font-weight:700;color:{COLORS['text_primary']}">{defeito}</span>
+                        <span style="font-size:14px;font-weight:700;color:var(--ag-text-primary)">{defeito}</span>
                     </div>
-                    <div style="font-size:12px;color:{COLORS['text_muted']};margin-top:2px">
+                    <div style="font-size:12px;color:var(--ag-text-muted);margin-top:2px">
                         {qtd:,} peça(s) · {pct:.0f}% do total
                     </div>
                 </div>
@@ -408,7 +409,7 @@ def _render_principais_defeitos(sel: pd.DataFrame, oficina: str) -> None:
 
             if destaque:
                 st.markdown(
-                    f"<p style='font-size:12px;color:#00805C;font-weight:600;margin:6px 0 0'>"
+                    f"<p style='font-size:12px;color:var(--ag-primary-dark);font-weight:600;margin:6px 0 0'>"
                     "⚠️ Principal defeito a resolver.</p>",
                     unsafe_allow_html=True,
                 )

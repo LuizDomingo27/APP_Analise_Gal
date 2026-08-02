@@ -122,12 +122,12 @@ def render_user_topbar() -> None:
                tingido de antes brigava com o traço verde do item ativo da navbar
                — dois verdes sólidos lado a lado no mesmo cabeçalho. */
             background: transparent !important;
-            border: 1px solid #00B884 !important;
+            border: 1px solid var(--ag-primary) !important;
             border-radius: 999px !important;
             padding: 4px 14px !important;
             font-size: 12.5px !important;
             font-weight: 400 !important;
-            color: #0D1B17 !important;
+            color: var(--ag-text-primary) !important;
         }
         /* Truncar o nome exige que a cadeia flex do botão possa encolher: por
            padrão um item flex não fica menor que seu conteúdo (min-width:auto),
@@ -150,8 +150,8 @@ def render_user_topbar() -> None:
             flex-shrink: 0 !important;
         }
         .st-key-user_topbar button[data-testid="stPopoverButton"]:hover {
-            background: rgba(0,229,160,0.10) !important;
-            border-color: #00805C !important;
+            background: rgba(var(--ag-primary-bright-rgb),0.10) !important;
+            border-color: var(--ag-primary-dark) !important;
         }
         </style>
         """,
@@ -166,18 +166,18 @@ def render_user_topbar() -> None:
                     <div style="
                         width:38px; height:38px; flex:0 0 38px;
                         border-radius:50%;
-                        background:linear-gradient(135deg,#00E5A0,#00B884);
-                        color:#04231B; font-weight:800; font-size:16px;
+                        background:linear-gradient(135deg,var(--ag-primary-bright),var(--ag-primary));
+                        color:var(--ag-text-on-accent); font-weight:800; font-size:16px;
                         display:flex; align-items:center; justify-content:center;
-                        box-shadow:0 2px 8px rgba(0,184,132,0.35);
+                        box-shadow:0 2px 8px rgba(var(--ag-primary-rgb),0.35);
                     ">{initial}</div>
                     <div style="min-width:0; line-height:1.25">
-                        <div style="font-size:13.5px; font-weight:700; color:#0D1B17;
+                        <div style="font-size:13.5px; font-weight:700; color:var(--ag-text-primary);
                                     white-space:nowrap; overflow:hidden; text-overflow:ellipsis">
                             {nome}
                         </div>
-                        <div style="font-size:10.5px; color:#4A5752; display:flex; gap:6px; align-items:center">
-                            <span style="color:#00805C">●</span>
+                        <div style="font-size:10.5px; color:var(--ag-text-muted); display:flex; gap:6px; align-items:center">
+                            <span style="color:var(--ag-primary-dark)">●</span>
                             <span>@{username}</span>
                             <span style="opacity:0.5">·</span>
                             <span>{role_label}</span>

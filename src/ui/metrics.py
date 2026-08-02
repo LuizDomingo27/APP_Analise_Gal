@@ -6,19 +6,19 @@ Receives a DataProcessor, returns nothing (side effects only).
 
 import streamlit as st
 from src.data.processor import DataProcessor
-from src.config.settings import COLORS
+from src.config.theme import accent_alpha, accent_color
 
 
 # ── KPI cards ─────────────────────────────────────────────────────────────────
 
 def render_metrics(processor: DataProcessor) -> None:
-    # ── paleta neon-roxo unificada ────────────────────────────────────────────
-    _NV  = "#00B884"   # neon violet — borda superior / glow
-    _NVB = "#0D1B17"   # branco neve — valor principal
-    _NVL = "#0D1B17"   # branco neve suave — label
-    _NVS = "#4A5752"   # branco neve tênue — sublabel
-    _BG1 = "#F2F7F5"   # fundo escuro do card (topo)
-    _BG2 = "#FFFFFF"   # fundo escuro do card (base)
+    # ── Paleta do card ────────────────────────────────────────────────────────
+    _NV  = "var(--ag-primary)"          # borda superior / glow
+    _NVB = "var(--ag-text-primary)"     # valor principal
+    _NVL = "var(--ag-text-primary)"     # label
+    _NVS = "var(--ag-text-muted)"       # sublabel
+    _BG1 = "var(--ag-bg-surface-alt)"   # fundo do card (topo)
+    _BG2 = "var(--ag-bg-surface)"       # fundo do card (base)
 
     cols = st.columns(5)
     cards = [
@@ -31,12 +31,12 @@ def render_metrics(processor: DataProcessor) -> None:
 
     card_style = f"""
         background: linear-gradient(160deg, {_BG1} 0%, {_BG2} 100%);
-        border: 1px solid rgba(0,229,160,0.32);
+        border: 1px solid rgba(var(--ag-primary-bright-rgb),0.32);
         border-top: 2px solid {_NV};
         border-radius: 12px;
         padding: 1.1rem 1.2rem 1rem;
-        box-shadow: 0 0 22px rgba(0,229,160,0.13),
-                    0 2px 8px rgba(0,0,0,0.35);
+        box-shadow: 0 0 22px rgba(var(--ag-primary-bright-rgb),0.13),
+                    0 2px 8px rgba(var(--ag-shadow-rgb),0.35);
         position: relative; overflow: hidden;
     """
 
@@ -48,7 +48,7 @@ def render_metrics(processor: DataProcessor) -> None:
                     <div style="
                         position:absolute;top:-18px;right:-18px;
                         width:64px;height:64px;border-radius:50%;
-                        background:radial-gradient(circle, rgba(0,229,160,0.22) 0%, transparent 70%);
+                        background:radial-gradient(circle, rgba(var(--ag-primary-bright-rgb),0.22) 0%, transparent 70%);
                         pointer-events:none;
                     "></div>
                     <div style="font-size:10px;color:{_NVL};
@@ -83,29 +83,33 @@ def render_insights(processor: DataProcessor) -> None:
             "⚠️ MAIOR VOLUME",
             sup_name,
             f"{sup_qty:,} peças com defeito",
-            COLORS["red"],
+            "danger",
         ),
         (
             cols[1],
             "💰 MAIOR CUSTO",
             cost_name,
             f"R$ {cost_val:,.2f} em retrabalho",
-            COLORS["coral"],
+            "accent-coral",
         ),
         (
             cols[2],
             "🔍 DEFEITO DOMINANTE",
             def_name,
             f"{def_qty:,} ocorrências — {def_pct:.1f}% do total",
-            COLORS["primary"],
+            "primary",
         ),
     ]
-    for col, badge, title, sub, color in items:
+    # `accent` é o nome de um token, não uma cor: o card usa a mesma cor sólida e
+    # a 5%, e derivá-las do nome evita o `{color}0D` de antes — concatenar sufixo
+    # de alpha só funciona com hex literal e quebra em silêncio com var().
+    for col, badge, title, sub, accent in items:
+        color = accent_color(accent)
         with col:
             st.markdown(
                 f"""
                 <div style="
-                    background:{color}0D;
+                    background:{accent_alpha(accent, 0.051)};
                     border-left:3px solid {color};
                     border-radius:8px;
                     padding:0.85rem 1rem;
@@ -114,11 +118,11 @@ def render_insights(processor: DataProcessor) -> None:
                                 text-transform:uppercase;letter-spacing:0.6px;margin-bottom:5px">
                         {badge}
                     </div>
-                    <div style="font-size:13px;font-weight:600;color:{COLORS['text_primary']};
+                    <div style="font-size:13px;font-weight:600;color:var(--ag-text-primary);
                                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                         {title}
                     </div>
-                    <div style="font-size:12px;color:{COLORS['text_muted']};margin-top:3px">{sub}</div>
+                    <div style="font-size:12px;color:var(--ag-text-muted);margin-top:3px">{sub}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
