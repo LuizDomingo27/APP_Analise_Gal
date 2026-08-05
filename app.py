@@ -418,6 +418,7 @@ def main() -> None:
     # ícones a barra fica só com texto, e nomes longos a enchem depressa.
     pages = [
         st.Page("pages/1_Dashboard.py", title="Análise de defeitos", default=True),
+        st.Page("pages/7_Performance.py", title="Performance"),
         st.Page("pages/2_Historico_Defeitos.py", title="Histórico"),
         st.Page("pages/3_Historico_Cobranca.py", title="Cobranças"),
         st.Page("pages/4_Defeitos_Imagens.py", title="Imagens"),
