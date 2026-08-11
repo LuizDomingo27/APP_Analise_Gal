@@ -27,6 +27,7 @@ CHANGELOG v13.0:
   - Adicionado: badge colorido por status na tabela
 """
 
+import logging
 from datetime import date, timedelta
 
 import pandas as pd
@@ -35,7 +36,10 @@ import streamlit as st
 from src.config.settings import COLS, COLORS
 from src.data.cobranca_history import (
     HISTORY_LABELS,
+    SITUACAO_OPTIONS,
     STATUS_OPTIONS,
+    count_unique_partners,
+    situacao_series,
     load_history,
     update_lancamento_status,
     migrate_paid_to_payments,
@@ -59,6 +63,8 @@ import streamlit.components.v1 as components
 from src.ui.preview import _generate_historico_html
 from src.auth.session import require_login, is_admin
 from src.ui.error_boundary import page_guard
+
+logger = logging.getLogger(__name__)
 
 # ── CSS global ────────────────────────────────────────────────────────────────
 st.markdown(
@@ -273,6 +279,33 @@ def _render_simple_table(df: pd.DataFrame, left_cols: frozenset = frozenset(), h
     </div>
     """
     st.markdown(table_html, unsafe_allow_html=True)
+
+
+_SITUACAO_COL = "_situacao"
+
+
+def _add_situacao_column(
+    df: pd.DataFrame, status_label: str, venc_label: str, pag_label: str
+) -> str | None:
+    """Grava a coluna interna de situação em `df` e devolve o nome dela.
+
+    Fronteira defensiva: se as datas vierem em um formato inesperado e o
+    cálculo falhar, devolve None — a página simplesmente segue sem o filtro
+    por situação, em vez de quebrar o histórico inteiro.
+    """
+    def _coluna(label: str) -> pd.Series:
+        if label in df.columns:
+            return df[label]
+        return pd.Series([""] * len(df), index=df.index)
+
+    try:
+        df[_SITUACAO_COL] = situacao_series(
+            _coluna(status_label), _coluna(venc_label), _coluna(pag_label)
+        )
+    except Exception:  # noqa: BLE001 — o filtro é opcional; a tabela não é
+        logger.exception("Falha ao calcular a situação dos lançamentos")
+        return None
+    return _SITUACAO_COL
 
 
 def _build_extrato_df(charge_groups: list[dict]) -> pd.DataFrame:
@@ -723,6 +756,13 @@ def _render_historico_tab() -> None:
         if col in df_view.columns:
             df_view[col] = pd.to_numeric(df_view[col], errors="coerce")
 
+    # ── Situação de cada lançamento (vencida / a vencer / paga) ──────────────
+    # Coluna interna (prefixo "_"), calculada uma vez sobre a base inteira: ela
+    # alimenta o filtro por situação abaixo e viaja junto nos recortes. As
+    # funções de exportação leem colunas por rótulo explícito, então a coluna
+    # extra não aparece no Excel nem no PDF (mesma convenção do "_orig_idx").
+    situacao_col = _add_situacao_column(df_view, status_label, venc_label, pag_label)
+
     # ── Filtros ───────────────────────────────────────────────────────────────
     date_from = date_to = None
     with st.expander("🔍 Filtros", expanded=False):
@@ -755,7 +795,7 @@ def _render_historico_tab() -> None:
                 key="hist_search",
             )
 
-        col_status, col_clear = st.columns([3, 1])
+        col_status, col_situacao, col_clear = st.columns([2, 2, 1])
         with col_status:
             status_filter = st.multiselect(
                 "Status",
@@ -763,15 +803,26 @@ def _render_historico_tab() -> None:
                 default=STATUS_OPTIONS,
                 key="hist_status_filter",
             )
+        with col_situacao:
+            situacao_filter = st.multiselect(
+                "Situação",
+                options=SITUACAO_OPTIONS,
+                default=SITUACAO_OPTIONS,
+                key="hist_situacao_filter",
+                help="Situação calculada pelo vencimento: selecione, por exemplo, "
+                     "apenas **Vencida** para ver só as dívidas em atraso.",
+            )
         with col_clear:
             st.markdown("<div style='height:1.6rem'></div>", unsafe_allow_html=True)
             if st.button("↺ Limpar Filtros", key="hist_clear", use_container_width=True):
-                for k in ("hist_date_from", "hist_date_to", "hist_search", "hist_status_filter"):
+                for k in ("hist_date_from", "hist_date_to", "hist_search",
+                          "hist_status_filter", "hist_situacao_filter"):
                     st.session_state.pop(k, None)
                 st.rerun()
 
     search_term = st.session_state.get("hist_search", "")
     status_filter = st.session_state.get("hist_status_filter", STATUS_OPTIONS)
+    situacao_filter = st.session_state.get("hist_situacao_filter", SITUACAO_OPTIONS)
 
     # ── Aplicar filtros ───────────────────────────────────────────────────────
     df_filtered = df_view.copy()
@@ -809,6 +860,15 @@ def _render_historico_tab() -> None:
     else:
         filters_parts.append("Status: todos")
 
+    # ── Situação (ex.: apenas dívidas vencidas) ───────────────────────────────
+    # Só filtra quando o usuário desmarca alguma opção: com todas selecionadas
+    # (o padrão) o recorte é idêntico ao de antes desta funcionalidade.
+    if situacao_col and situacao_filter and set(situacao_filter) != set(SITUACAO_OPTIONS):
+        df_filtered = df_filtered[df_filtered[situacao_col].isin(situacao_filter)]
+        filters_parts.append(f"Situação: {', '.join(situacao_filter)}")
+    else:
+        filters_parts.append("Situação: todas")
+
     filters_desc = "   |   ".join(filters_parts)
 
     # ── Calcular totais ───────────────────────────────────────────────────────
@@ -821,6 +881,13 @@ def _render_historico_tab() -> None:
     # código evita duplicar e reflete o nº real de cobranças realizadas.
     n_cobrancas   = df_filtered[cod_label].nunique() if cod_label in df_filtered.columns else 0
     n_records     = len(df_filtered)
+    # Parceiros únicos: o mesmo parceiro é cobrado várias vezes, então o nome se
+    # repete linha a linha — o que interessa é quantos parceiros DISTINTOS já
+    # foram cobrados. Contagem por nome normalizado (ver count_unique_partners).
+    n_parceiros   = (
+        count_unique_partners(df_filtered[sup_label])
+        if sup_label in df_filtered.columns else 0
+    )
 
     totals = dict(
         n_records=n_records,
@@ -831,14 +898,21 @@ def _render_historico_tab() -> None:
         n_cobrancas=n_cobrancas,
     )
 
-    # ── 6 Cards KPI ───────────────────────────────────────────────────────────
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    # ── 7 Cards KPI (4 + 3) ───────────────────────────────────────────────────
+    # Duas linhas em vez de uma de sete: com sete colunas o card do VALOR TOTAL
+    # ficava estreito demais e cortava o número com reticências.
+    c1, c2, c3, c4 = st.columns(4)
     _kpi_card(c1, "🧵", "PEÇAS COM DEFEITO",    f"{total_pieces:,}",         "#0F86A3")
     _kpi_card(c2, "📋", "TOTAL DEFEITOS",        str(n_records),              "#00B884")
     _kpi_card(c3, "⏱️", "TOTAL MINUTOS",         f"{total_minutes:,.0f} min", "#00E5A0")
     _kpi_card(c4, "💰", "VALOR TOTAL",           f"R$ {total_value:,.2f}",    "#E24B4A")
-    _kpi_card(c5, "📦", "ORDENS ÚNICAS (OM)",    str(n_orders),               "#EF9F27")
-    _kpi_card(c6, "🧾", "COBRANÇAS REALIZADAS",  str(n_cobrancas),            "#7B5EA7")
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+    c5, c6, c7 = st.columns(3)
+    _kpi_card(c5, "📦", "ORDENS ÚNICAS (OM)",       str(n_orders),     "#EF9F27")
+    _kpi_card(c6, "🧾", "COBRANÇAS REALIZADAS",     str(n_cobrancas),  "#7B5EA7")
+    _kpi_card(c7, "🤝", "PARCEIROS ÚNICOS COBRADOS", str(n_parceiros), "#1D9E75")
 
     st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 
@@ -1195,7 +1269,13 @@ def _render_pagamentos_tab() -> None:
     # ── KPIs (refletem a pesquisa aplicada) ──────────────────────────────────
     total_value    = df_filtered[val_label].sum() if val_label in df_filtered.columns else 0.0
     n_lancamentos  = df_filtered[cod_label].nunique() if cod_label in df_filtered.columns else 0
-    n_fornecedores = df_filtered[sup_label].nunique() if sup_label in df_filtered.columns else 0
+    # Parceiros únicos que já pagaram: um mesmo parceiro paga várias cobranças,
+    # então o nome se repete — a contagem é por nome distinto (normalizado), e
+    # não por lançamento. Espelha o card "Parceiros Únicos Cobrados" do Histórico.
+    n_parceiros    = (
+        count_unique_partners(df_filtered[sup_label])
+        if sup_label in df_filtered.columns else 0
+    )
 
     n_no_prazo = n_atraso = 0
     if situ_label in df_filtered.columns and cod_label in df_filtered.columns:
@@ -1206,7 +1286,7 @@ def _render_pagamentos_tab() -> None:
     c1, c2, c3, c4, c5 = st.columns(5)
     _metric_kpi_card(c1, "💰", "VALOR TOTAL PAGO",   f"R$ {total_value:,.2f}", "#1D9E75")
     _metric_kpi_card(c2, "🧾", "LANÇAMENTOS PAGOS",  str(n_lancamentos),       "#534AB7")
-    _metric_kpi_card(c3, "🏢", "FORNECEDORES",       str(n_fornecedores),      "#0F86A3")
+    _metric_kpi_card(c3, "🤝", "PARCEIROS QUE PAGARAM", str(n_parceiros),     "#0F86A3")
     _metric_kpi_card(c4, "✅", "PAGOS NO PRAZO",     str(n_no_prazo),          "#00B884")
     _metric_kpi_card(c5, "⚠️", "PAGOS COM ATRASO",   str(n_atraso),            "#D85A30")
 

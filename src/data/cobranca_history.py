@@ -10,6 +10,7 @@ import hashlib
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 from openpyxl import Workbook
@@ -187,6 +188,114 @@ def situacao_badge_html(status: str, data_vencimento, data_pagamento) -> str:
     if dias == 0:
         return '<span class="badge-status status-pendente">⏳ Vence hoje</span>'
     return f'<span style="color:var(--ag-primary-dark);font-weight:600">{dias} dia(s)</span>'
+
+
+# ── Situação do lançamento (derivada das datas) ───────────────────────────────
+# O status ("Pendente"/"Pago"/"Devolução") é um campo gravado; a SITUAÇÃO é
+# calculada a partir das datas e do dia de hoje — é ela que responde "quais
+# dívidas estão vencidas?". Usada pelo filtro da aba Histórico de Cobranças.
+
+SITUACAO_VENCIDA     = "Vencida"
+SITUACAO_VENCE_HOJE  = "Vence hoje"
+SITUACAO_A_VENCER    = "A vencer"
+SITUACAO_PAGA_PRAZO  = "Paga no prazo"
+SITUACAO_PAGA_ATRASO = "Paga com atraso"
+SITUACAO_SEM_INFO    = "Sem informação"
+
+#: Ordem de exibição no filtro (da mais urgente para a menos).
+SITUACAO_OPTIONS = [
+    SITUACAO_VENCIDA,
+    SITUACAO_VENCE_HOJE,
+    SITUACAO_A_VENCER,
+    SITUACAO_PAGA_ATRASO,
+    SITUACAO_PAGA_PRAZO,
+    SITUACAO_SEM_INFO,
+]
+
+
+def _parse_date_series(values) -> pd.Series:
+    """Converte uma coluna de datas para datetime, tolerando formatos mistos.
+
+    As datas do histórico são gravadas como texto "dd/mm/aaaa", mas registros
+    antigos (ou vindos de outra origem) podem chegar como Timestamp. Primeiro
+    tenta o formato canônico — vetorizado e rápido — e só então reprocessa o
+    que sobrou com inferência dia-primeiro.
+    """
+    serie = values if isinstance(values, pd.Series) else pd.Series(values)
+    parsed = pd.to_datetime(serie, format="%d/%m/%Y", errors="coerce")
+    restante = parsed.isna() & serie.notna()
+    if restante.any():
+        parsed.loc[restante] = pd.to_datetime(
+            serie[restante], dayfirst=True, errors="coerce"
+        )
+    return parsed
+
+
+def situacao_series(
+    status, data_vencimento, data_pagamento, hoje: date | None = None
+) -> pd.Series:
+    """Classifica cada linha em uma das `SITUACAO_OPTIONS` (versão vetorizada).
+
+    Regras, na ordem:
+      · status "Pago" com as duas datas  → Paga com atraso / Paga no prazo;
+      · sem data de vencimento (ou "Pago" sem data de pagamento) → Sem informação;
+      · vencimento anterior a hoje → Vencida;  igual a hoje → Vence hoje;
+      · demais → A vencer.
+    """
+    hoje = hoje or date.today()
+    venc = _parse_date_series(data_vencimento)
+    pag  = _parse_date_series(data_pagamento)
+
+    # Comparações posicionais (numpy): as três colunas vêm do mesmo DataFrame,
+    # mas trabalhar em array elimina qualquer risco de alinhamento por índice
+    # silenciosamente errado caso alguma delas chegue reindexada.
+    status_serie = status if isinstance(status, pd.Series) else pd.Series(list(status))
+    pago = status_serie.astype(str).str.strip().eq("Pago").to_numpy()
+
+    dias_venc   = (venc - pd.Timestamp(hoje)).dt.days.to_numpy()
+    dias_atraso = (pag - venc).dt.days.to_numpy()
+    sem_venc    = venc.isna().to_numpy()
+    tem_datas   = (venc.notna() & pag.notna()).to_numpy()
+
+    resultado = np.full(len(venc), SITUACAO_A_VENCER, dtype=object)
+    resultado[dias_venc == 0] = SITUACAO_VENCE_HOJE
+    resultado[dias_venc < 0]  = SITUACAO_VENCIDA
+    resultado[sem_venc]       = SITUACAO_SEM_INFO
+    resultado[pago]           = SITUACAO_SEM_INFO
+    resultado[pago & tem_datas & (dias_atraso > 0)]  = SITUACAO_PAGA_ATRASO
+    resultado[pago & tem_datas & (dias_atraso <= 0)] = SITUACAO_PAGA_PRAZO
+    return pd.Series(resultado, index=venc.index, dtype=object)
+
+
+def situacao_categoria(
+    status, data_vencimento, data_pagamento, hoje: date | None = None
+) -> str:
+    """Versão escalar de `situacao_series` (uma linha)."""
+    return situacao_series(
+        pd.Series([status]), pd.Series([data_vencimento]),
+        pd.Series([data_pagamento]), hoje=hoje,
+    ).iloc[0]
+
+
+def count_unique_partners(names) -> int:
+    """Conta parceiros distintos por NOME, ignorando caixa, espaços e vazios.
+
+    Um mesmo parceiro aparece em várias cobranças (o nome se repete linha a
+    linha), então o número de parceiros é a contagem de nomes distintos. A
+    normalização evita que "Oficina X", "oficina x" e "Oficina  X" contem como
+    três parceiros diferentes.
+    """
+    serie = names if isinstance(names, pd.Series) else pd.Series(list(names))
+    if serie.empty:
+        return 0
+    normalizado = (
+        serie.dropna().astype(str)
+        .str.strip()
+        .str.replace(r"\s+", " ", regex=True)
+        .str.casefold()
+    )
+    normalizado = normalizado[normalizado != ""]
+    return int(normalizado.nunique())
 
 
 def group_charges(

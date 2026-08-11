@@ -39,7 +39,7 @@ from src.data.historico_defeitos import (
 from src.data.processor import DataProcessor
 from src.services.exporter import get_xlsx_bytes
 from src.ui.layout import _VAR_TH, _VAR_TH_L, _row_bg, _td, _wrap_table
-from src.ui.metrics import render_insights, render_metrics
+from src.ui.metrics import render_insights, render_metrics, render_month_comparison
 from src.ui.preview import (
     _generate_defeitos_tabela_html,
     _generate_fornecedores_faixa_html,
@@ -79,6 +79,8 @@ def render_historico_page() -> None:
         else:
             processor = DataProcessor(filtered)
             render_metrics(processor)
+            _spacer(6)
+            render_month_comparison(processor)
             _spacer(6)
             render_insights(processor)
 
@@ -441,12 +443,18 @@ def _render_charts_only(processor: DataProcessor) -> None:
         _defect_legend()
         echart(builder.donut_defect_type(processor.by_defect_type()), key="hist_donut_defect")
 
-    # ── Evolução temporal ────────────────────────────────────────────────────
+    # ── Evolução temporal (apenas o mês vigente do recorte) ──────────────────
+    # Mesma regra da página de Análise de Defeitos: o dia a dia só é legível
+    # dentro de um mês. O mês vigente acompanha o filtro (é o mês da data mais
+    # recente do recorte), então filtrar um período antigo continua mostrando
+    # dados — o último mês daquele período.
     _section("Evolução Temporal", "📅")
-    _chart_label("Defeitos por dia")
-    echart(builder.area_defects_by_date(processor.by_date()), key="hist_area_defects")
-    _chart_label("Custo de remonte por dia (R$)")
-    echart(builder.area_cost_by_date(processor.by_date_cost()), key="hist_area_cost")
+    mes = DataProcessor.month_label(processor.current_month())
+    st.caption(f"Exibindo apenas o mês vigente do recorte filtrado: **{mes}**.")
+    _chart_label(f"Defeitos por dia — {mes}")
+    echart(builder.area_defects_by_date(processor.by_date_current_month()), key="hist_area_defects")
+    _chart_label(f"Custo de remonte por dia (R$) — {mes}")
+    echart(builder.area_cost_by_date(processor.by_date_cost_current_month()), key="hist_area_cost")
 
     # ── Análise por fornecedor ───────────────────────────────────────────────
     _section("Análise por Oficina", "🏭")

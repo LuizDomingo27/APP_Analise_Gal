@@ -268,13 +268,23 @@ def _render_distribution(processor: DataProcessor) -> None:
 # ── Section 2: Evolução Temporal ──────────────────────────────────────────────
 
 def _render_temporal(processor: DataProcessor) -> None:
+    """Séries diárias do MÊS VIGENTE do recorte filtrado.
+
+    Antes os dois gráficos plotavam todo o período filtrado: com meses de
+    histórico acumulado o eixo virava um borrão de datas e o dia a dia do mês
+    corrente ficava ilegível. O mês vigente é o mês da data mais recente do
+    recorte, então o gráfico continua acompanhando o filtro aplicado.
+    """
     _section("Evolução Temporal", "📅")
 
-    _chart_label("Defeitos por dia")
-    echart(builder.area_defects_by_date(processor.by_date()), key="lay_area_defects")
+    mes = DataProcessor.month_label(processor.current_month())
+    st.caption(f"Exibindo apenas o mês vigente do recorte filtrado: **{mes}**.")
 
-    _chart_label("Custo de remonte por dia (R$)")
-    echart(builder.area_cost_by_date(processor.by_date_cost()), key="lay_area_cost")
+    _chart_label(f"Defeitos por dia — {mes}")
+    echart(builder.area_defects_by_date(processor.by_date_current_month()), key="lay_area_defects")
+
+    _chart_label(f"Custo de remonte por dia (R$) — {mes}")
+    echart(builder.area_cost_by_date(processor.by_date_cost_current_month()), key="lay_area_cost")
 
 
 # ── Section 3: Análise por Fornecedor (2 linhas × 2 colunas) ─────────────────
