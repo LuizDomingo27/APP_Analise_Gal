@@ -7,12 +7,23 @@ No UI or chart code — pure data transformation.
 import pandas as pd
 from src.config.settings import COLS
 
+#: Nomes dos meses em pt-BR. Fixos no código de propósito: `strftime("%B")`
+#: depende do locale do processo, que no Streamlit Cloud é o padrão em inglês.
+MONTH_NAMES_PT = (
+    "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+    "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+)
+
 
 class DataProcessor:
     """Encapsulates all analytical computations over a (filtered) DataFrame."""
 
     def __init__(self, df: pd.DataFrame) -> None:
         self.df = df
+        #: Memo do recorte mensal (ver `_month_series`). O processador é tratado
+        #: como imutável em todo o app: é criado a partir do DataFrame já
+        #: filtrado e descartado ao fim do render.
+        self._months_cache: pd.Series | None = None
 
     # ── KPIs ─────────────────────────────────────────────────────────────────
 
@@ -92,6 +103,115 @@ class DataProcessor:
 
     def by_date_cost(self) -> pd.DataFrame:
         return self._agg_sum([COLS["date"]], COLS["value_brl"]).sort_values(COLS["date"])
+
+    # ── Mês vigente e comparativo mensal ─────────────────────────────────────
+    # "Mês vigente" é o mês da data mais RECENTE do recorte já filtrado — e não
+    # o mês do calendário de hoje. Assim o gráfico por dia e o card comparativo
+    # continuam mostrando algo útil quando o usuário filtra um período passado
+    # (com o mês do calendário, a tela ficaria vazia sempre que o filtro não
+    # alcançasse o mês corrente).
+
+    def _month_series(self) -> pd.Series:
+        """Período mensal (period[M]) de cada linha; NaT onde a data é inválida.
+
+        Memoizado: uma única tela chama os métodos de mês meia dúzia de vezes
+        (dois gráficos + o card comparativo), e reconverter a coluna de datas a
+        cada chamada seria varrer a base inteira várias vezes por render.
+        """
+        if self._months_cache is None:
+            if self.df.empty or COLS["date"] not in self.df.columns:
+                self._months_cache = pd.Series(index=self.df.index, dtype="period[M]")
+            else:
+                self._months_cache = (
+                    pd.to_datetime(self.df[COLS["date"]], errors="coerce")
+                    .dt.to_period("M")
+                )
+        return self._months_cache
+
+    def current_month(self) -> pd.Period | None:
+        """Mês mais recente presente no recorte, ou None se não houver datas."""
+        months = self._month_series().dropna()
+        if months.empty:
+            return None
+        return months.max()
+
+    @staticmethod
+    def month_label(period: "pd.Period | None") -> str:
+        """Rótulo pt-BR de um período mensal (ex.: 'Agosto/2026')."""
+        if period is None:
+            return "—"
+        return f"{MONTH_NAMES_PT[period.month - 1]}/{period.year}"
+
+    def rows_in_month(self, period: "pd.Period | None") -> pd.DataFrame:
+        """Subconjunto do recorte pertencente ao mês informado (vazio se None)."""
+        if period is None:
+            return self.df.iloc[0:0]
+        return self.df[self._month_series() == period]
+
+    def by_date_current_month(self) -> pd.DataFrame:
+        """`by_date` restrito ao mês vigente do recorte."""
+        return DataProcessor(self.rows_in_month(self.current_month())).by_date()
+
+    def by_date_cost_current_month(self) -> pd.DataFrame:
+        """`by_date_cost` restrito ao mês vigente do recorte."""
+        return DataProcessor(self.rows_in_month(self.current_month())).by_date_cost()
+
+    def month_over_month(self) -> dict:
+        """Compara o mês vigente com o mês CALENDÁRIO imediatamente anterior.
+
+        Chaves do dicionário retornado:
+            has_current / has_previous → bool
+            current_label / previous_label → str ("Agosto/2026")
+            current_pieces / previous_pieces / pieces_delta → int
+            current_value / previous_value / value_delta → float
+            pieces_pct / value_pct → float | None (None quando a base é zero)
+
+        Mês anterior sem registros no recorte → has_previous False, totais 0 e
+        percentuais None: o card exibe "sem base de comparação" em vez de uma
+        variação de 100% que não significa nada.
+        """
+        curr = self.current_month()
+        prev = curr - 1 if curr is not None else None
+
+        months = self._month_series()
+        cur_rows  = self.df[months == curr] if curr is not None else self.df.iloc[0:0]
+        prev_rows = self.df[months == prev] if prev is not None else self.df.iloc[0:0]
+
+        cur_pieces,  cur_value  = self._pieces_and_value(cur_rows)
+        prev_pieces, prev_value = self._pieces_and_value(prev_rows)
+
+        return {
+            "has_current":    curr is not None and not cur_rows.empty,
+            "has_previous":   prev is not None and not prev_rows.empty,
+            "current_label":  self.month_label(curr),
+            "previous_label": self.month_label(prev),
+            "current_pieces":  cur_pieces,
+            "previous_pieces": prev_pieces,
+            "pieces_delta":    cur_pieces - prev_pieces,
+            "pieces_pct":      self._pct_change(cur_pieces, prev_pieces),
+            "current_value":   cur_value,
+            "previous_value":  prev_value,
+            "value_delta":     round(cur_value - prev_value, 2),
+            "value_pct":       self._pct_change(cur_value, prev_value),
+        }
+
+    @staticmethod
+    def _pieces_and_value(df: pd.DataFrame) -> tuple[int, float]:
+        """Soma quantidade e valor de um recorte, tolerando colunas ausentes."""
+        def _sum(col: str) -> float:
+            if col not in df.columns:
+                return 0.0
+            total = pd.to_numeric(df[col], errors="coerce").sum()
+            return float(total) if pd.notna(total) else 0.0
+
+        return int(_sum(COLS["quantity"])), round(_sum(COLS["value_brl"]), 2)
+
+    @staticmethod
+    def _pct_change(current: float, previous: float) -> float | None:
+        """Variação percentual; None quando não há base anterior (evita ÷ 0)."""
+        if not previous:
+            return None
+        return (current - previous) / previous * 100
 
     # ── Cross matrix ─────────────────────────────────────────────────────────
 

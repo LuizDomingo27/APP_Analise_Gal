@@ -20,7 +20,7 @@ from src.data.loader import (
 )
 from src.data.processor import DataProcessor
 from src.ui.filters import render_filters
-from src.ui.metrics import render_metrics, render_insights
+from src.ui.metrics import render_metrics, render_insights, render_month_comparison
 from src.ui.layout import render_charts
 from src.auth.session import require_login, is_admin
 from src.ui.error_boundary import page_guard
@@ -234,6 +234,8 @@ def main() -> None:
     processor = DataProcessor(filtered_df)
 
     render_metrics(processor)
+    _divider()
+    render_month_comparison(processor)
     _divider()
     render_insights(processor)
     _divider()
