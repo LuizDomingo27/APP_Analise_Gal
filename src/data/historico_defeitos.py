@@ -97,6 +97,10 @@ def get_supplier_counts() -> pd.DataFrame:
     Alimenta o formulário de correção de nomes. Retorna DataFrame vazio se
     não houver dados.
 
+    Registros com FORNECEDOR NULL são excluídos: não podem ser corrigidos por
+    correspondência exata de nome e, como viram NaN no pandas, quebrariam a
+    busca de contagem no formulário (NaN != NaN).
+
     Cacheado: invalidado explicitamente em append_historico/rename_supplier
     (as únicas escritas que afetam a coluna FORNECEDOR desta tabela).
     """
@@ -107,6 +111,7 @@ def get_supplier_counts() -> pd.DataFrame:
                 'SELECT "FORNECEDOR" AS valor, COUNT(*) AS qtd, '
                 'LOWER("FORNECEDOR") AS ordem_lower '
                 f'FROM {_TABLE} '
+                'WHERE "FORNECEDOR" IS NOT NULL '
                 'GROUP BY "FORNECEDOR", LOWER("FORNECEDOR") '
                 'ORDER BY ordem_lower'
             ),
