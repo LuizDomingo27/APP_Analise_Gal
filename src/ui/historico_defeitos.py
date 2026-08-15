@@ -707,6 +707,22 @@ def _render_supplier_edit_form() -> None:
         st.info("Nenhum fornecedor cadastrado no histórico ainda.")
         return
 
+    # Exclui nomes nulos/vazios: não são corrigíveis por correspondência exata
+    # e um NaN quebraria a busca de contagem abaixo (NaN != NaN).
+    df_sup = df_sup[df_sup["valor"].notna()]
+    if df_sup.empty:
+        st.info("Nenhum fornecedor cadastrado no histórico ainda.")
+        return
+
+    # Contagem por nome, para lookup seguro (evita .iloc[0] em resultado vazio).
+    counts = dict(zip(df_sup["valor"], df_sup["qtd"]))
+
+    def _count_for(v) -> int:
+        try:
+            return int(counts.get(v, 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
     value_options = df_sup["valor"].tolist()
 
     col_old, col_new = st.columns(2)
@@ -714,7 +730,7 @@ def _render_supplier_edit_form() -> None:
         old_value = st.selectbox(
             "Nome atual (a corrigir)",
             options=value_options,
-            format_func=lambda v: f"{v}  —  {int(df_sup.loc[df_sup['valor'] == v, 'qtd'].iloc[0]):,} registro(s)",
+            format_func=lambda v: f"{v}  —  {_count_for(v):,} registro(s)",
             key="historico_rename_old",
         )
     with col_new:
@@ -725,11 +741,7 @@ def _render_supplier_edit_form() -> None:
             help="Edite a grafia correta (acentos, espaços, caixa) e confirme abaixo.",
         )
 
-    affected = (
-        int(df_sup.loc[df_sup["valor"] == old_value, "qtd"].iloc[0])
-        if old_value in value_options
-        else 0
-    )
+    affected = _count_for(old_value) if old_value in value_options else 0
 
     _spacer(6)
     disabled = not new_value or not new_value.strip() or new_value == old_value

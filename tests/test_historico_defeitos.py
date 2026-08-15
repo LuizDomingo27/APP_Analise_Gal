@@ -175,6 +175,31 @@ def test_get_supplier_counts_empty_when_no_data(temp_db):
     assert hd.get_supplier_counts().empty
 
 
+def test_get_supplier_counts_excludes_null_supplier(temp_db):
+    """
+    Regressão: um FORNECEDOR NULL virava NaN e entrava no selectbox da tela
+    de correção; como NaN != NaN, a busca de contagem estourava
+    `IndexError: single positional indexer is out-of-bounds`. A consulta deve
+    excluir nomes nulos.
+    """
+    hd.append_historico(_make_xlsx([
+        _row("2026-07-01", supplier="Fornecedor A"),
+        _row("2026-07-02", supplier="Fornecedor B"),
+    ]))
+    # Força FORNECEDOR NULL em um dos registros, direto no banco.
+    with db.get_connection() as conn:
+        conn.execute(text(
+            'UPDATE historico_defeitos SET "FORNECEDOR" = NULL '
+            'WHERE "FORNECEDOR" = :s'
+        ), {"s": "Fornecedor A"})
+        conn.commit()
+    hd.get_supplier_counts.clear()
+
+    df = hd.get_supplier_counts()
+    assert df["valor"].notna().all()
+    assert "Fornecedor B" in df["valor"].tolist()
+
+
 # ── rename_supplier ───────────────────────────────────────────────────────────
 
 def test_rename_supplier_updates_all_matching_rows(temp_db):
