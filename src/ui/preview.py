@@ -275,6 +275,146 @@ tbody td.hi,tbody td strong.hi{color:#00805C;font-weight:700}
 """
 
 
+# ── HTML generator: fornecedores vencidos / a vencer hoje ─────────────────────
+
+def _generate_overdue_suppliers_html(charges: list[dict], hoje: date | None = None) -> str:
+    """
+    Gera o HTML de impressão da agenda de cobrança do dia: todas as cobranças
+    com situação "Vencida" ou "Vence hoje", uma linha por lançamento, agrupadas
+    visualmente por fornecedor (ordenadas da mais atrasada para a menos).
+
+    `charges` é a lista devolvida por
+    `src.data.cobranca_history.overdue_charges`. Aceita lista vazia (gera um
+    relatório com aviso de "nenhuma pendência"), portanto o chamador não precisa
+    de nenhuma guarda extra.
+    """
+    hoje = hoje or date.today()
+    ts       = datetime.now(_TZ_BR).strftime("%d/%m/%Y %H:%M")
+    hoje_br  = hoje.strftime("%d/%m/%Y")
+
+    charges = charges or []
+    n_charges   = len(charges)
+    total_value = sum(float(c.get("valor_total", 0.0) or 0.0) for c in charges)
+    n_suppliers = len({
+        str(c.get("fornecedor", "")).strip().casefold()
+        for c in charges if str(c.get("fornecedor", "")).strip()
+    })
+    n_vencidas   = sum(1 for c in charges if int(c.get("dias_atraso", 0) or 0) > 0)
+    n_vence_hoje = n_charges - n_vencidas
+
+    def _sit_badge(dias: int) -> str:
+        if dias > 0:
+            return (
+                "<span style=\"display:inline-block;padding:2px 9px;border-radius:20px;"
+                "font-size:11px;font-weight:700;background:#FCE4E2;color:#C0392B;"
+                "border:1px solid #C0392B\">⚠️ Vencida</span>"
+            )
+        return (
+            "<span style=\"display:inline-block;padding:2px 9px;border-radius:20px;"
+            "font-size:11px;font-weight:700;background:#FBE8C8;color:#9A6B1E;"
+            "border:1px solid #EF9F27\">⏳ Vence hoje</span>"
+        )
+
+    if charges:
+        rows = ""
+        for c in charges:
+            dias = int(c.get("dias_atraso", 0) or 0)
+            dias_txt = f"{dias}d" if dias > 0 else "—"
+            rows += (
+                "<tr>"
+                f"<td class='tdl'><strong class='hi'>{c.get('fornecedor', '')}</strong></td>"
+                f"<td>{c.get('cnpj', '')}</td>"
+                f"<td>{c.get('cod', '')}</td>"
+                f"<td>{c.get('data_vencimento', '')}</td>"
+                f"<td>{_sit_badge(dias)}</td>"
+                f"<td>{dias_txt}</td>"
+                f"<td>{_fmt_int(c.get('n_itens', 0))}</td>"
+                f"<td>R$ {float(c.get('valor_total', 0.0) or 0.0):,.2f}</td>"
+                "</tr>"
+            )
+        total_row = (
+            "<tr>"
+            "<td class='tdl' colspan='7' style='text-align:right;font-weight:700'>TOTAL EM ABERTO</td>"
+            f"<td style='font-weight:700;color:#C0392B'>R$ {total_value:,.2f}</td>"
+            "</tr>"
+        )
+        table_block = f"""
+<div class="sec">Cobranças em Aberto &nbsp;({n_charges:,} lançamento(s))</div>
+<div class="tw">
+<table>
+  <thead>
+    <tr>
+      <th style="text-align:left">Fornecedor</th><th>CNPJ</th><th>Código</th>
+      <th>Vencimento</th><th>Situação</th><th>Atraso</th><th>Itens</th><th>Valor (R$)</th>
+    </tr>
+  </thead>
+  <tbody>{rows}{total_row}</tbody>
+</table>
+</div>"""
+    else:
+        table_block = (
+            "<div class=\"sec\">Cobranças em Aberto</div>"
+            "<div style=\"padding:2rem;text-align:center;color:#0D1B17;"
+            "border:1px dashed #00B884;border-radius:10px;background:#F2F7F5\">"
+            "✅ Nenhuma cobrança vencida ou a vencer hoje.</div>"
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fornecedores Vencidos · Qualidade</title>
+<style>
+{_SHARED_CSS}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="htitle">📌 Fornecedores a Cobrar · <span>Vencidos e Vence Hoje</span></div>
+    <div class="hsub">Posição em {hoje_br} &nbsp;·&nbsp; Gerado em {ts}</div>
+  </div>
+  <div class="hright">
+    <span class="hbadge">Agenda de Cobrança</span>
+    <button class="pdf-btn" onclick="window.print()">🖨️ Baixar PDF</button>
+  </div>
+</div>
+
+<div class="sec">Resumo</div>
+<div class="cards-3">
+  <div class="card">
+    <div class="card-top"><span class="cico">🤝</span></div>
+    <div class="clabel">Fornecedores a Cobrar</div>
+    <div class="cv">{n_suppliers:,}</div>
+    <div class="cdetail">com pendência em aberto</div>
+  </div>
+  <div class="card">
+    <div class="card-top"><span class="cico">⚠️</span></div>
+    <div class="clabel">Vencidas / Vence Hoje</div>
+    <div class="cv">{n_vencidas:,} / {n_vence_hoje:,}</div>
+    <div class="cdetail">{n_charges:,} lançamento(s)</div>
+  </div>
+  <div class="card">
+    <div class="card-top"><span class="cico">💰</span></div>
+    <div class="clabel">Valor Total em Aberto</div>
+    <div class="cv">R$ {total_value:,.2f}</div>
+    <div class="cdetail">soma das cobranças</div>
+  </div>
+</div>
+
+{table_block}
+
+<div class="footer">
+  <span>Fornecedores a Cobrar · Controle de Qualidade</span>
+  <span>{n_charges:,} lançamento(s) &nbsp;·&nbsp; {ts}</span>
+</div>
+
+</body>
+</html>"""
+
+
 # ── HTML generator for general Defect Report ──────────────────────────────────
 
 def _generate_html(fdf: pd.DataFrame, tdf: pd.DataFrame) -> str:
