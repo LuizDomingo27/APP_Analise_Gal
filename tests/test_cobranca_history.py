@@ -306,6 +306,92 @@ def test_update_lancamento_status_propagates_database_error(temp_db, monkeypatch
         ch.update_lancamento_status("PAG-ERR0001", "Pago", data_pagamento=date(2026, 6, 12))
 
 
+# ── overdue_charges: agenda de cobrança (vencidos / vence hoje) ─────────────────
+
+_HOJE_FIXO = date(2026, 6, 15)
+
+
+def _raw_hist_row(cod, fornecedor, cnpj, vencimento, status, valor, pagamento=""):
+    """Monta uma linha do histórico bruto (colunas cruas, como load_history)."""
+    return {
+        "COD_LANCAMENTO": cod,
+        "DATA_COBRANCA": "01/06/2026",
+        "DATA_VENCIMENTO": vencimento,
+        "DATA_PAGAMENTO": pagamento,
+        "CNPJ_FORNECEDOR": cnpj,
+        COLS["status"]: status,
+        COLS["supplier"]: fornecedor,
+        COLS["value_brl"]: valor,
+    }
+
+
+def test_overdue_charges_none_and_empty_return_empty_list():
+    assert ch.overdue_charges(None, hoje=_HOJE_FIXO) == []
+    assert ch.overdue_charges(pd.DataFrame(), hoje=_HOJE_FIXO) == []
+
+
+def test_overdue_charges_missing_cod_column_returns_empty_list():
+    df = pd.DataFrame([{
+        "DATA_VENCIMENTO": "10/06/2026", "DATA_PAGAMENTO": "",
+        COLS["status"]: "Pendente", COLS["supplier"]: "A", COLS["value_brl"]: 10.0,
+    }])
+    assert ch.overdue_charges(df, hoje=_HOJE_FIXO) == []
+
+
+def test_overdue_charges_includes_vencida_and_vence_hoje_excludes_a_vencer_and_paga():
+    df = pd.DataFrame([
+        _raw_hist_row("PAG-VENC", "Oficina Vencida", "111", "10/06/2026", "Pendente", 50.0),
+        _raw_hist_row("PAG-HOJE", "Oficina Hoje", "222", "15/06/2026", "Pendente", 30.0),
+        _raw_hist_row("PAG-FUT",  "Oficina Futura", "333", "20/06/2026", "Pendente", 40.0),
+        _raw_hist_row("PAG-PAGA", "Oficina Paga", "444", "05/06/2026", "Pago", 20.0, "04/06/2026"),
+    ])
+    charges = ch.overdue_charges(df, hoje=_HOJE_FIXO)
+    codes = {c["cod"] for c in charges}
+    assert codes == {"PAG-VENC", "PAG-HOJE"}
+
+
+def test_overdue_charges_groups_by_codigo_and_sums_valor():
+    df = pd.DataFrame([
+        _raw_hist_row("PAG-VENC", "Oficina A", "111", "10/06/2026", "Pendente", 50.0),
+        _raw_hist_row("PAG-VENC", "Oficina A", "111", "10/06/2026", "Pendente", 20.0),
+    ])
+    charges = ch.overdue_charges(df, hoje=_HOJE_FIXO)
+    assert len(charges) == 1
+    assert charges[0]["n_itens"] == 2
+    assert charges[0]["valor_total"] == pytest.approx(70.0)
+    assert charges[0]["dias_atraso"] == 5
+    assert charges[0]["situacao"] == ch.SITUACAO_VENCIDA
+
+
+def test_overdue_charges_vence_hoje_has_zero_days():
+    df = pd.DataFrame([
+        _raw_hist_row("PAG-HOJE", "Oficina Hoje", "222", "15/06/2026", "Pendente", 30.0),
+    ])
+    charges = ch.overdue_charges(df, hoje=_HOJE_FIXO)
+    assert charges[0]["dias_atraso"] == 0
+    assert charges[0]["situacao"] == ch.SITUACAO_VENCE_HOJE
+
+
+def test_overdue_charges_sorted_most_overdue_first():
+    df = pd.DataFrame([
+        _raw_hist_row("PAG-3D", "Oficina B", "222", "12/06/2026", "Pendente", 10.0),
+        _raw_hist_row("PAG-10D", "Oficina A", "111", "05/06/2026", "Pendente", 10.0),
+        _raw_hist_row("PAG-HOJE", "Oficina C", "333", "15/06/2026", "Pendente", 10.0),
+    ])
+    charges = ch.overdue_charges(df, hoje=_HOJE_FIXO)
+    assert [c["cod"] for c in charges] == ["PAG-10D", "PAG-3D", "PAG-HOJE"]
+
+
+def test_overdue_charges_tolerates_missing_vencimento_column():
+    # Sem DATA_VENCIMENTO todas caem em "Sem informação" → nada a cobrar, mas
+    # a função não pode quebrar.
+    df = pd.DataFrame([{
+        "COD_LANCAMENTO": "PAG-X", COLS["status"]: "Pendente",
+        COLS["supplier"]: "A", COLS["value_brl"]: 10.0,
+    }])
+    assert ch.overdue_charges(df, hoje=_HOJE_FIXO) == []
+
+
 # ── launch_charge: lançamento atômico com reivindicação ────────────────────────
 
 _REGISTRO_SQL = (

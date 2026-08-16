@@ -109,3 +109,67 @@ def test_print_timestamp_uses_brazil_timezone_not_server_local():
     html = preview._generate_html(df, df)
     match = re.search(r"Gerado em (\d{2}/\d{2}/\d{4} \d{2}:\d{2})", html)
     assert match is not None
+
+
+# ── _generate_overdue_suppliers_html: agenda de cobrança ───────────────────────
+
+_HOJE_FIXO = date(2026, 6, 15)
+
+
+def _overdue_charge(cod, fornecedor, cnpj, vencimento, dias, valor, n_itens=1):
+    return {
+        "cod": cod,
+        "fornecedor": fornecedor,
+        "cnpj": cnpj,
+        "data_vencimento": vencimento,
+        "situacao": "Vencida" if dias > 0 else "Vence hoje",
+        "dias_atraso": dias,
+        "n_itens": n_itens,
+        "valor_total": valor,
+    }
+
+
+def test_overdue_html_empty_shows_no_pending_message():
+    html = preview._generate_overdue_suppliers_html([], hoje=_HOJE_FIXO)
+    assert "Nenhuma cobrança vencida" in html
+    # Cabeçalho e resumo continuam presentes mesmo sem pendências.
+    assert "Fornecedores a Cobrar" in html
+    assert "R$ 0.00" in html
+
+
+def test_overdue_html_lists_suppliers_and_totals():
+    charges = [
+        _overdue_charge("PAG-1", "Oficina A", "111", "05/06/2026", 10, 100.0, n_itens=2),
+        _overdue_charge("PAG-2", "Oficina B", "222", "15/06/2026", 0, 50.0),
+    ]
+    html = preview._generate_overdue_suppliers_html(charges, hoje=_HOJE_FIXO)
+    assert "Oficina A" in html
+    assert "Oficina B" in html
+    assert "PAG-1" in html
+    # Total em aberto = 150.00
+    assert "R$ 150.00" in html
+    # 2 fornecedores distintos
+    assert ">2<" in html
+    # Situação badges
+    assert "Vencida" in html
+    assert "Vence hoje" in html
+
+
+def test_overdue_html_counts_distinct_suppliers_ignoring_case_and_spaces():
+    charges = [
+        _overdue_charge("PAG-1", "Oficina X", "111", "10/06/2026", 5, 10.0),
+        _overdue_charge("PAG-2", "oficina  x", "111", "12/06/2026", 3, 10.0),
+    ]
+    html = preview._generate_overdue_suppliers_html(charges, hoje=_HOJE_FIXO)
+    # Mesmo fornecedor (normalizado) → 1 fornecedor, mas 2 lançamentos.
+    assert "2 lançamento(s)" in html
+
+
+def test_overdue_html_is_valid_document_and_has_expected_columns():
+    charges = [_overdue_charge("PAG-1", "Oficina A", "111", "05/06/2026", 10, 100.0)]
+    html = preview._generate_overdue_suppliers_html(charges, hoje=_HOJE_FIXO)
+    assert html.startswith("<!DOCTYPE html>")
+    thead = html.split("<thead>")[1].split("</thead>")[0]
+    headers = re.findall(r"<th[^>]*>(.*?)</th>", thead)
+    assert headers == ["Fornecedor", "CNPJ", "Código", "Vencimento",
+                       "Situação", "Atraso", "Itens", "Valor (R$)"]

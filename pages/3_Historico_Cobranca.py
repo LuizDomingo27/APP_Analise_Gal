@@ -47,6 +47,7 @@ from src.data.cobranca_history import (
     generate_history_xlsx_bytes,
     generate_single_charge_xlsx_bytes,
     group_charges,
+    overdue_charges,
     status_badge_html,
     situacao_badge_html,
     payment_punctuality,
@@ -60,7 +61,7 @@ from src.data.divida_dividida import (
 from src.ui.cobranca import render_cobranca_page
 import base64
 import streamlit.components.v1 as components
-from src.ui.preview import _generate_historico_html
+from src.ui.preview import _generate_historico_html, _generate_overdue_suppliers_html
 from src.auth.session import require_login, is_admin
 from src.ui.error_boundary import page_guard
 
@@ -392,7 +393,7 @@ def _build_group_summary_df(charge_groups: list[dict], mode: str) -> pd.DataFram
     return pd.DataFrame(rows)
 
 
-def _render_print_button(html_content: str) -> None:
+def _render_print_button(html_content: str, label: str = "🖨️&nbsp; Prévia / Imprimir PDF") -> None:
     """Botão que abre um HTML de impressão em nova aba (padrão de 'PDF' usado no app)."""
     html_b64 = base64.b64encode(html_content.encode("utf-8")).decode()
     components.html(
@@ -424,7 +425,7 @@ def _render_print_button(html_content: str) -> None:
 </style>
 </head>
 <body>
-<button class="btn" onclick="openPreview()">🖨️&nbsp; Prévia / Imprimir PDF</button>
+<button class="btn" onclick="openPreview()">{label}</button>
 <script>
   const _HTML_B64 = "{html_b64}";
   function openPreview() {{
@@ -1068,11 +1069,7 @@ def _render_historico_tab() -> None:
             st.info("Nenhum registro encontrado para atualizar.")
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    btn_save, btn_dl, btn_pdf, _sp = st.columns([1, 1, 1, 2])
-
-    with btn_save:
-        # Botão placeholder para manter alinhamento
-        st.button("💾  Salvar alterações", key="btn_save_status", use_container_width=True, disabled=True, help="Status agora é salvo automaticamente pelo painel acima.")
+    btn_dl, btn_pdf, btn_venc, _sp = st.columns([1, 1, 1, 1])
 
     # ── Botões de exportação ─────────────────────────────────────────────────
     with btn_dl:
@@ -1098,6 +1095,23 @@ def _render_historico_tab() -> None:
                 "🖨️  Prévia / Imprimir PDF", disabled=True,
                 use_container_width=True,
                 help="Nenhum registro para exportar.",
+            )
+
+    # ── Impressão da agenda de cobrança: fornecedores vencidos / vence hoje ──
+    # Base é o histórico completo (independe dos filtros da tela): lista todos os
+    # fornecedores com dívida em atraso ou que vence hoje, o que interessa para a
+    # rotina de cobrança do dia.
+    with btn_venc:
+        overdue = overdue_charges(df_hist)
+        if overdue:
+            html_venc = _generate_overdue_suppliers_html(overdue)
+            _render_print_button(html_venc, label="🖨️&nbsp; Imprimir Vencidos")
+        else:
+            st.button(
+                "🖨️  Imprimir Vencidos", disabled=True,
+                use_container_width=True,
+                key="btn_overdue_disabled",
+                help="Nenhuma cobrança vencida ou que vence hoje.",
             )
 
 

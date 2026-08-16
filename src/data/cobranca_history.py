@@ -277,6 +277,85 @@ def situacao_categoria(
     ).iloc[0]
 
 
+#: Situações que representam uma dívida em aberto exigindo cobrança HOJE
+#: (a base da "agenda de cobrança do dia").
+SITUACAO_EM_ABERTO = (SITUACAO_VENCIDA, SITUACAO_VENCE_HOJE)
+
+
+def overdue_charges(df_hist: pd.DataFrame | None, hoje: date | None = None) -> list[dict]:
+    """
+    Lista as cobranças (uma entrada por COD_LANCAMENTO) cuja SITUAÇÃO é
+    "Vencida" ou "Vence hoje" na data `hoje` — a agenda de cobrança do dia,
+    "todos os fornecedores em atraso ou que vencem hoje".
+
+    Cada item traz: cod, fornecedor, cnpj, data_vencimento, situacao,
+    dias_atraso (0 para as que vencem hoje, positivo para vencidas), n_itens e
+    valor_total. Ordenado da mais atrasada para a menos e, no empate, por
+    fornecedor.
+
+    Puro e defensivo: aceita None/vazio (retorna []), tolera colunas ausentes e
+    datas em formatos mistos, e nunca levanta — se o cálculo de situação falhar,
+    registra e retorna []. Não toca no banco.
+    """
+    if df_hist is None or len(df_hist) == 0:
+        return []
+
+    hoje = hoje or date.today()
+    n = len(df_hist)
+
+    def _col(name: str) -> pd.Series:
+        if name in df_hist.columns:
+            return df_hist[name]
+        return pd.Series([""] * n, index=df_hist.index)
+
+    try:
+        sit = situacao_series(
+            _col(COLS["status"]), _col("DATA_VENCIMENTO"), _col("DATA_PAGAMENTO"),
+            hoje=hoje,
+        )
+    except Exception:  # noqa: BLE001 — relatório opcional; nunca deve quebrar a página
+        logger.exception("Falha ao calcular a situação para o relatório de vencidos")
+        return []
+
+    mask = sit.isin(SITUACAO_EM_ABERTO).to_numpy()
+    if not mask.any():
+        return []
+
+    if "COD_LANCAMENTO" not in df_hist.columns:
+        return []
+
+    df = df_hist.loc[mask].copy()
+    df["_situacao_calc"] = sit.to_numpy()[mask]
+    venc_dt = _parse_date_series(df["DATA_VENCIMENTO"]) \
+        if "DATA_VENCIMENTO" in df.columns else pd.Series([pd.NaT] * len(df), index=df.index)
+    df["_dias_atraso"] = (pd.Timestamp(hoje) - venc_dt).dt.days
+
+    val_col = COLS["value_brl"]
+    sup_col = COLS["supplier"]
+
+    charges: list[dict] = []
+    for cod, grupo in df.groupby("COD_LANCAMENTO", sort=False):
+        primeira = grupo.iloc[0]
+        valor_total = (
+            pd.to_numeric(grupo[val_col], errors="coerce").sum()
+            if val_col in grupo.columns else 0.0
+        )
+        dias = primeira.get("_dias_atraso")
+        charges.append({
+            "cod": cod,
+            "fornecedor": primeira.get(sup_col, ""),
+            "cnpj": primeira.get("CNPJ_FORNECEDOR", ""),
+            "data_vencimento": primeira.get("DATA_VENCIMENTO", ""),
+            "situacao": primeira.get("_situacao_calc", ""),
+            "dias_atraso": int(dias) if pd.notna(dias) else 0,
+            "n_itens": len(grupo),
+            "valor_total": float(valor_total) if pd.notna(valor_total) else 0.0,
+        })
+
+    charges.sort(key=lambda c: (-c["dias_atraso"], str(c["fornecedor"]).casefold()))
+    return charges
+
+
 def count_unique_partners(names) -> int:
     """Conta parceiros distintos por NOME, ignorando caixa, espaços e vazios.
 
