@@ -1,5 +1,9 @@
 streamlit==1.58.0
 starlette==1.4.1
+# anyio 4.15.0 passou a importar submodulos de forma preguicosa, quebrando o
+# `anyio.lowlevel.RunVar` usado por starlette/middleware/gzip.py (importado pelo
+# streamlit no boot): AttributeError: module 'anyio' has no attribute 'lowlevel'.
+anyio>=4.13.0,<4.15.0
 pandas>=2.0.0
 streamlit-echarts==0.4.0
 openpyxl>=3.1.0
