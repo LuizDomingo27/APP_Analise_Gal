@@ -467,14 +467,9 @@ def _render_charts_only(processor: DataProcessor) -> None:
         echart(builder.bar_supplier_cost(processor.by_supplier_cost(10)), key="hist_sup_cost")
 
     _spacer(8)
-    c5, c6 = st.columns(2)
-    with c5:
-        _chart_label("Top 10 — taxa média de remonte (%)")
-        echart(builder.bar_supplier_rate(processor.by_supplier_rate(10)), key="hist_sup_rate")
-    with c6:
-        _chart_label("Top 12 — combinações Local × Defeito")
-        _defect_legend()
-        echart(builder.bar_key_combinations(processor.by_key(12)), key="hist_key_combos")
+    _chart_label("Top 12 — combinações de local e tipo de defeito")
+    _defect_legend()
+    echart(builder.bar_key_combinations(processor.by_key(12)), key="hist_key_combos")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

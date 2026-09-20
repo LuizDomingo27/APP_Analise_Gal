@@ -36,6 +36,7 @@ from src.ui.preview import _generate_cobranca_html
 
 # ── Constante de limite ───────────────────────────────────────────────────────
 CHARGE_THRESHOLD = 400.0
+DEFAULT_PAYMENT_TERM_DAYS = 15
 
 
 # ── Formatação segura de células numéricas ────────────────────────────────────
@@ -259,7 +260,8 @@ def _show_preview_dialog(
     # ── KPI cards — prazo da cobrança (data/vencimento/dias a vencer) ────────
     c4, c5, c6 = st.columns(3)
     _mini_kpi(c4, "✦ DATA DA COBRANÇA",   data_cobranca.strftime("%d/%m/%Y"),   "info")
-    _mini_kpi(c5, "✦ VENCIMENTO (+20D)",  data_vencimento.strftime("%d/%m/%Y"), "text-subtle")
+    prazo_dias = (data_vencimento - data_cobranca).days
+    _mini_kpi(c5, f"✦ VENCIMENTO (+{prazo_dias}D)", data_vencimento.strftime("%d/%m/%Y"), "text-subtle")
     _mini_kpi(c6, "✦ DIAS PARA VENCER",   dias_texto,                           dias_accent)
 
     # ── Label da tabela ───────────────────────────────────────────────────────
@@ -356,7 +358,8 @@ def _render_charge_dates_input(supplier: str) -> tuple[date, date, int]:
     de Fornecedores (refletidos depois na pré-visualização e no PDF):
 
       - Data da Cobrança:   escolhida livremente pelo usuário.
-      - Data de Vencimento: calculada automaticamente = Data da Cobrança + 20 dias.
+      - Prazo em dias: padrão de 10 dias, editável somente por administradores.
+      - Data de Vencimento: Data da Cobrança + prazo escolhido (dias corridos).
       - Dias para Vencer:   contagem regressiva entre hoje e a Data de Vencimento.
     """
     st.markdown(
@@ -369,7 +372,7 @@ def _render_charge_dates_input(supplier: str) -> tuple[date, date, int]:
         unsafe_allow_html=True,
     )
 
-    col_cobranca, col_vencimento, col_dias = st.columns(3)
+    col_cobranca, col_prazo, col_vencimento, col_dias = st.columns(4)
 
     with col_cobranca:
         data_cobranca = st.date_input(
@@ -378,17 +381,29 @@ def _render_charge_dates_input(supplier: str) -> tuple[date, date, int]:
             format="DD/MM/YYYY",
             key=f"data_cobranca_{supplier}",
             help="Data em que a cobrança está sendo realizada junto ao fornecedor. ",
-            width=250
+            width=150
         )
 
-        # DIAS_VENCER nova regra de cobrança, O vencimento é calculado automaticamente
-        # (+10 dias) mas o usuário pode informar um valor diferente para fins de informação.
-    
-        #DIAS_VENCER = st.number_input("Selecione os Dias para Vencer", value=10,
-        # step=1, key=f"dias_vencer_{supplier}",
-        # help="Este campo é calculado automaticamente de acordo com a sua escolha.",width=150)
-    
-    data_vencimento  = data_cobranca + timedelta(days=10)
+    admin = is_admin()
+    prazo_key = f"prazo_cobranca_{supplier}"
+    # Não reaproveitar um prazo administrativo após troca de perfil na sessão.
+    if not admin:
+        st.session_state[prazo_key] = DEFAULT_PAYMENT_TERM_DAYS
+    with col_prazo:
+        prazo_dias = st.number_input(
+            "Prazo(dias)",
+            min_value=0,
+            max_value=(date.max - data_cobranca).days,
+            value=DEFAULT_PAYMENT_TERM_DAYS,
+            step=1,
+            key=prazo_key,
+            disabled=not admin,
+            help="Dias corridos a partir da data da cobrança. "
+                 "Somente administradores podem alterar este prazo.",
+            width=130     
+        )
+    prazo_dias = int(prazo_dias) if admin else DEFAULT_PAYMENT_TERM_DAYS
+    data_vencimento = data_cobranca + timedelta(days=prazo_dias)
     dias_para_vencer = (data_vencimento - date.today()).days
     dias_texto, dias_accent = _dias_para_vencer_label(dias_para_vencer)
 

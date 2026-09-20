@@ -687,7 +687,7 @@ def _generate_cobranca_html(
     </div>
     <div class="clabel">Data de Vencimento</div>
     <div class="cv">{data_vencimento_str}</div>
-    <div class="cdetail">cobrança + 20 dias</div>
+    <div class="cdetail">cobrança + {(data_vencimento - data_cobranca).days} dias</div>
   </div>
   <div class="card">
     <div class="card-top">
