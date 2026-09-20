@@ -59,6 +59,7 @@ from src.data.divida_dividida import (
     generate_divida_dividida_xlsx_bytes,
 )
 from src.ui.cobranca import render_cobranca_page
+from src.ui.charge_summary import render_summary_exports
 import base64
 import streamlit.components.v1 as components
 from src.ui.preview import _generate_historico_html, _generate_overdue_suppliers_html
@@ -83,13 +84,18 @@ st.markdown(
         border-right: 1px solid rgba(0,0,0,0.06);
     }
     [data-testid="stSidebar"] label { color: #4A5752 !important; font-size: 13px !important; }
+    .stDownloadButton > button {
+        min-width: 0 !important;
+        padding: 4px 8px !important;
+        font-size: 12px !important;
+    }
     .stButton > button {
         height: 38px !important;
-        min-width: 160px !important;
-        font-size: 14px !important;
+        min-width: 0 !important;
+        font-size: 12px !important;
         font-weight: 500 !important;
         border-radius: 6px !important;
-        padding: 0 20px !important;
+        padding: 0 8px !important;
         background: rgba(0,229,160,0.15) !important;
         color:#00805C !important;
         border: 1px solid rgba(0,229,160,0.35) !important;
@@ -393,7 +399,7 @@ def _build_group_summary_df(charge_groups: list[dict], mode: str) -> pd.DataFram
     return pd.DataFrame(rows)
 
 
-def _render_print_button(html_content: str, label: str = "🖨️&nbsp; Prévia / Imprimir PDF") -> None:
+def _render_print_button(html_content: str, label: str = "PDF completo") -> None:
     """Botão que abre um HTML de impressão em nova aba (padrão de 'PDF' usado no app)."""
     html_b64 = base64.b64encode(html_content.encode("utf-8")).decode()
     components.html(
@@ -409,13 +415,13 @@ def _render_print_button(html_content: str, label: str = "🖨️&nbsp; Prévia 
   }}
   .btn {{
     display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    width: 100%; min-width: 160px; height: 38px; border-radius: 6px; cursor: pointer;
-    font-size: 14px; font-weight: 500;
+    width: 100%; min-width: 0; height: 38px; border-radius: 6px; cursor: pointer;
+    font-size: 12px; font-weight: 500;
     transition: all .15s ease;
     background: rgba(0,229,160,0.15);
     color:#00805C;
     border: 1px solid rgba(0,229,160,0.35);
-    padding: 0 20px;
+    padding: 0 8px;
   }}
   .btn:hover {{
     background: rgba(0,229,160,0.28);
@@ -535,7 +541,7 @@ def _show_extrato_dialog(cod_lancamento: str, df_source: pd.DataFrame) -> None:
         xlsx_bytes = generate_single_charge_xlsx_bytes(cod_lancamento)
         if xlsx_bytes:
             st.download_button(
-                "⬇️  Baixar Excel",
+                "Excel completo",
                 data=xlsx_bytes,
                 file_name=f"extrato_{cod_lancamento}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -544,7 +550,7 @@ def _show_extrato_dialog(cod_lancamento: str, df_source: pd.DataFrame) -> None:
             )
         else:
             st.button(
-                "⬇️  Baixar Excel", disabled=True, use_container_width=True,
+                "Excel completo", disabled=True, use_container_width=True,
                 key=f"dl_extrato_xlsx_disabled_{cod_lancamento}",
             )
 
@@ -1069,14 +1075,15 @@ def _render_historico_tab() -> None:
             st.info("Nenhum registro encontrado para atualizar.")
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-    btn_dl, btn_pdf, btn_venc, _sp = st.columns([1, 1, 1, 1])
+    btn_dl, btn_pdf, btn_venc, btn_sx, btn_sp, _sp = st.columns([1, 1, 1, 1, 1, 1])
+    render_summary_exports(df_filtered, btn_sx, btn_sp, "hist")
 
     # ── Botões de exportação ─────────────────────────────────────────────────
     with btn_dl:
         _xlsx_bytes = generate_history_xlsx_bytes() if n_records > 0 else None
         if _xlsx_bytes:
             st.download_button(
-                label="⬇️  Baixar Excel",
+                label="Excel completo",
                 data=_xlsx_bytes,
                 file_name=f"bd_cobranca_{date.today().isoformat()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1084,7 +1091,7 @@ def _render_historico_tab() -> None:
                 use_container_width=True,
             )
         else:
-            st.button("⬇️  Baixar Excel", disabled=True, use_container_width=True)
+            st.button("Excel completo", disabled=True, use_container_width=True, key="excel_empty_1")
 
     with btn_pdf:
         if n_records > 0:
@@ -1092,7 +1099,7 @@ def _render_historico_tab() -> None:
             _render_print_button(html_hist)
         else:
             st.button(
-                "🖨️  Prévia / Imprimir PDF", disabled=True,
+                "PDF completo", disabled=True, key="pdf_empty_1",
                 use_container_width=True,
                 help="Nenhum registro para exportar.",
             )
@@ -1375,12 +1382,13 @@ def _render_pagamentos_tab() -> None:
 
     # ── Botão de exportar Excel executivo ─────────────────────────────────────
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-    btn_dl, _sp = st.columns([1, 3])
+    btn_dl, btn_sx, btn_sp, _sp = st.columns([1, 1, 1, 3])
+    render_summary_exports(df_filtered, btn_sx, btn_sp, "pagamentos")
     with btn_dl:
         _xlsx_bytes = generate_payments_xlsx_bytes() if df_pag is not None and not df_pag.empty else None
         if _xlsx_bytes:
             st.download_button(
-                label="📊  Baixar Excel Executivo",
+                label="Excel completo",
                 data=_xlsx_bytes,
                 file_name=f"pagamentos_concluidos_{date.today().isoformat()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1390,7 +1398,7 @@ def _render_pagamentos_tab() -> None:
                      "independente da pesquisa acima).",
             )
         else:
-            st.button("📊  Baixar Excel Executivo", disabled=True, use_container_width=True)
+            st.button("Excel completo", disabled=True, use_container_width=True, key="excel_empty_2")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1568,13 +1576,14 @@ def _render_devolucao_tab() -> None:
 
     # ── Botões de exportação (Excel + Prévia/Imprimir PDF) ────────────────────
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-    btn_dl, btn_pdf, _sp = st.columns([1, 1, 2])
+    btn_dl, btn_pdf, btn_sx, btn_sp, _sp = st.columns([1, 1, 1, 1, 2])
+    render_summary_exports(df_filtered, btn_sx, btn_sp, "devolucoes")
 
     with btn_dl:
         _xlsx_bytes = generate_devolucoes_xlsx_bytes() if df_dev is not None and not df_dev.empty else None
         if _xlsx_bytes:
             st.download_button(
-                label="📊  Baixar Excel Executivo",
+                label="Excel completo",
                 data=_xlsx_bytes,
                 file_name=f"devolucoes_{date.today().isoformat()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1584,7 +1593,7 @@ def _render_devolucao_tab() -> None:
                      "independente da pesquisa acima).",
             )
         else:
-            st.button("📊  Baixar Excel Executivo", disabled=True, use_container_width=True)
+            st.button("Excel completo", disabled=True, use_container_width=True, key="excel_empty_3")
 
     with btn_pdf:
         if len(df_filtered) > 0:
@@ -1603,7 +1612,7 @@ def _render_devolucao_tab() -> None:
             _render_print_button(html_dev)
         else:
             st.button(
-                "🖨️  Prévia / Imprimir PDF", disabled=True,
+                "PDF completo", disabled=True, key="pdf_empty_2",
                 use_container_width=True,
                 help="Nenhum registro para exportar.",
             )
@@ -1784,13 +1793,14 @@ def _render_divida_dividida_tab() -> None:
 
     # ── Botões de exportação (Excel + Prévia/Imprimir PDF) ────────────────────
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-    btn_dl, btn_pdf, _sp = st.columns([1, 1, 2])
+    btn_dl, btn_pdf, btn_sx, btn_sp, _sp = st.columns([1, 1, 1, 1, 2])
+    render_summary_exports(df_filtered, btn_sx, btn_sp, "divididas")
 
     with btn_dl:
         _xlsx_bytes = generate_divida_dividida_xlsx_bytes() if df_div is not None and not df_div.empty else None
         if _xlsx_bytes:
             st.download_button(
-                label="📊  Baixar Excel Executivo",
+                label="Excel completo",
                 data=_xlsx_bytes,
                 file_name=f"cobrancas_divididas_{date.today().isoformat()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1800,7 +1810,7 @@ def _render_divida_dividida_tab() -> None:
                      "independente da pesquisa acima).",
             )
         else:
-            st.button("📊  Baixar Excel Executivo", disabled=True, use_container_width=True)
+            st.button("Excel completo", disabled=True, use_container_width=True, key="excel_empty_4")
 
     with btn_pdf:
         if len(df_filtered) > 0:
@@ -1819,7 +1829,7 @@ def _render_divida_dividida_tab() -> None:
             _render_print_button(html_div)
         else:
             st.button(
-                "🖨️  Prévia / Imprimir PDF", disabled=True,
+                "PDF completo", disabled=True, key="pdf_empty_3",
                 use_container_width=True,
                 help="Nenhum registro para exportar.",
             )
