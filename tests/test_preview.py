@@ -61,11 +61,13 @@ def test_generate_cobranca_html_includes_fornecedor_and_8_columns():
         df_sel=df,
         df_full=df,
         data_cobranca=date.today(),
-        data_vencimento=date.today() + timedelta(days=20),
-        dias_para_vencer=20,
+        data_vencimento=date.today() + timedelta(days=35),
+        dias_para_vencer=35,
     )
     assert _extract_headers(html) == _EXPECTED_HEADERS
     assert "Fornecedor A" in html.split("<tbody>")[1]
+    assert "cobrança + 35 dias" in html
+    assert "cobrança + 20 dias" not in html
 
 
 def test_generate_historico_html_reduces_15_columns_to_8():
