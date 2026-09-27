@@ -91,6 +91,11 @@ def _database_url() -> str:
             "de onde o comando foi executado — rode a partir da pasta raiz do projeto, "
             "ou passe --database-url diretamente (se o script suportar essa opção)."
         )
+    # Algumas URLs copiadas do Supabase selecionam o driver psycopg (v3),
+    # enquanto este projeto instala psycopg2-binary. Use o driver instalado
+    # sem exigir que o secret já configurado no Streamlit Cloud seja alterado.
+    if url.startswith("postgresql+psycopg://"):
+        url = "postgresql+psycopg2://" + url[len("postgresql+psycopg://"):]
     return url
 
 
