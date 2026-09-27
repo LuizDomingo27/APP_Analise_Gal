@@ -23,6 +23,24 @@ import src.data.database as db
 from src.data.database import DatabaseUnavailableError, _friendly_db_message
 
 
+@pytest.mark.parametrize(
+    ("configured_url", "expected_url"),
+    [
+        (
+            "postgresql+psycopg://user:pass@localhost:6543/postgres",
+            "postgresql+psycopg2://user:pass@localhost:6543/postgres",
+        ),
+        (
+            "postgresql+psycopg2://user:pass@localhost:6543/postgres",
+            "postgresql+psycopg2://user:pass@localhost:6543/postgres",
+        ),
+    ],
+)
+def test_database_url_uses_installed_postgres_driver(monkeypatch, configured_url, expected_url):
+    monkeypatch.setattr(db.st, "secrets", {"DATABASE_URL": configured_url})
+    assert db._database_url() == expected_url
+
+
 @pytest.fixture
 def temp_db(tmp_path, monkeypatch):
     db_path = tmp_path / "test_errors.db"
